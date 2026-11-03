@@ -32,9 +32,10 @@ ENV PYTHONUNBUFFERED=1 \
     LAB_DB_PATH=/app/data/lab.sqlite \
     PORT=8021
 
-EXPOSE 8021
+EXPOSE 8000 8021
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${PORT}/api/health" || exit 1
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8021} --workers 1"]
+# Bind both 8000 and 8021 by default; override with LAB_BIND_PORTS=8021.
+CMD ["python", "-m", "app.entrypoint"]

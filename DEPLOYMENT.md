@@ -9,6 +9,7 @@
 2. Coolify → **New Resource** → **Application** → 选择仓库。
 3. Build Pack 选择 **Dockerfile**（仓库根目录已有 `Dockerfile`）。
 4. 端口设为 `8021`（与 Dockerfile 的 `PORT` / `EXPOSE` 一致）。
+   应用默认同时监听 `8000` 和 `8021`（`LAB_BIND_PORTS`），所以 Coolify 的 Ports Exposes 填 8000 或 8021 都能访问；想只开一个端口就设置 `LAB_BIND_PORTS=8021`。
 5. **Persistent Storage**：
    - Volume mount path：`/app/data`
    - 建议使用 named volume 或宿主机目录，例如 `/data/polytrader-lab:/app/data`
@@ -141,6 +142,7 @@ PY
 | 大量成交没有 markout | 该日期没有挂载数据集，future.news 也拿不到样本；检查 `LAB_KLINES_DATASET_DIR` / 网络 |
 | collector 一直 `未连接` | 服务器出站 WSS 被阻断，或当前 5m 市场 Gamma 尚未索引；看 `/collector` 的 `last_error` |
 | 容器启动后 DB 不可写 | 持久化卷权限；让卷由容器内 `appuser` 可写，或用 Coolify 的 volume 初始化 |
+| 公网 502 但容器 healthy | 应用默认同时监听 8000/8021；确认 Coolify Ports Exposes 是 8000 或 8021，然后 Redeploy 重新生成 Traefik 标签 |
 | 想清空数据 | 停止容器，删除卷内 `lab.sqlite*`，重新部署；或设置 `LAB_DEMO_SEED=1` 前先备份 |
 
 ## 八、升级
