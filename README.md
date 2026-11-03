@@ -12,6 +12,7 @@ Polymarket 交易者行为归因与策略研究平台。目标不是“跟单”
 | 批量归因 | `/wallets`、`/wallets/{address}` | SQLite 队列 + 限速/重试/断点续跑；逐笔 entry edge、markout、配对成本、双边比例、持仓、返佣、时段/价格带、集中度 |
 | 策略画像与聚类 | `/wallets/{address}`、`/compare` | 规则打分分类：HFT 做市 / 方向性 taker / 配对套利 / 长尾买入 / 波段 / 返佣型；多钱包特征矩阵与 KMeans 聚类 |
 | Shadow / Replica | `/shadow`、`/replica` | Shadow：同价/延迟复刻目标成交；Replica：用推断的报价偏移、窗口、价格带、库存独立跑纸盘 |
+| 策略实验室 | `/lab` | 参数网格扫描、train/validation 拆分、按验证集 ROI 排名、保存我们自己的策略配置 |
 | 持续监控 | `/monitor` | 定时快照，跟踪 entry edge、markout、返佣、配对成本、成交量的漂移与告警 |
 | 行情采集 | `/collector` | WebSocket 订阅 BTC 5m CLOB market channel，采集 book/price_change/last_trade_price；同时轮询目标钱包最新成交 |
 
@@ -149,6 +150,19 @@ docker compose up -d --build
 输出 primary classification、confidence、tags、逐条证据和自然语言 verdict。
 多钱包时使用 KMeans（标准化特征）聚类，并在 `/compare` 展示。
 
+## Strategy Lab（我们自己的策略）
+
+`/lab` 不是复刻目标，而是在参数空间里找**我们自己的**配置：
+
+- 策略族：`mid_maker`（默认）/ `pair_lock`
+- 默认网格：offset `0.002/0.003/0.005/0.008`、5 组窗口、价格带 `0.30-0.90` / `0.50-0.90`、size `5/10/20`、返佣 `0/45bps`
+- 风控约束：单市场最大成本 `$25`、总敞口 `$500`
+- 按天切分 train / validation，按 validation ROI 排名
+- Top 参数可保存到 `strategies` 表，作为后续前向纸盘/实盘候选
+
+注意：回测使用 1 秒 last price + next-tick 穿越，未模拟队列位置、撤单延迟和腿风险；
+train/validation 只是时间切分，不等于未来收益。保存策略后必须再做前向纸盘验证。
+
 ## Shadow / Replica
 
 - **Shadow**：把目标窗口内的 BUY 成交按同价（delay=0）或 t+delay 的 mid 复制，持有到结算。
@@ -187,6 +201,7 @@ app/
     insights.py           自然语言研究结论
     shadow.py             Shadow 复算
     replica.py            离线 Replica 模拟
+    sweep.py              参数网格扫描 + train/validation + 策略保存
     monitor.py            快照与漂移
     collector.py          BTC 5m WebSocket 采集
     discovery.py          leaderboard 同步

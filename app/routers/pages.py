@@ -11,6 +11,7 @@ from ..db import connect, from_json
 from ..services import discovery as discovery_service
 from ..services import metrics
 from ..services import collector as collector_service
+from ..services import sweep as sweep_service
 from ..services.jobs import get_job, list_jobs
 from ..services.monitor import drift, snapshot_rows
 from ..services.profiles import cluster_wallets
@@ -28,6 +29,7 @@ NAV = [
     {"href": "/discover", "label": "发现交易者", "icon": "compass"},
     {"href": "/wallets", "label": "钱包画像", "icon": "wallet"},
     {"href": "/compare", "label": "对比与聚类", "icon": "compare"},
+    {"href": "/lab", "label": "策略实验室", "icon": "target"},
     {"href": "/shadow", "label": "Shadow 复刻", "icon": "layers"},
     {"href": "/replica", "label": "Replica 纸盘", "icon": "flask"},
     {"href": "/monitor", "label": "持续监控", "icon": "pulse"},
@@ -249,6 +251,56 @@ def compare(request: Request):
         scatter=scatter,
         rebate_scatter=rebate_scatter,
     )
+
+
+@router.get("/lab", response_class=HTMLResponse)
+def lab_page(request: Request):
+    conn = connect()
+    try:
+        runs = sweep_service.list_runs(conn)
+        strategies = sweep_service.list_strategies(conn)
+    finally:
+        conn.close()
+    return _render(request, "lab.html", runs=runs, strategies=strategies)
+
+
+@router.get("/lab/{run_id}", response_class=HTMLResponse)
+def lab_detail(request: Request, run_id: str):
+    conn = connect()
+    try:
+        run = sweep_service.get_run(conn, run_id)
+    finally:
+        conn.close()
+    if not run:
+        return _render(request, "not_found.html", message="Sweep run 不存在")
+    results = run.get("results") or []
+    scatter = []
+    for result in results:
+        if result.get("train_roi") is None or result.get("val_roi") is None:
+            continue
+        params = result.get("params") or {}
+        scatter.append(
+            {
+                "name": f"{params.get('offset')} / {params.get('window_set')} / {params.get('size')}",
+                "x": (result["train_roi"] or 0) * 100,
+                "y": (result["val_roi"] or 0) * 100,
+                "r": 7,
+                "classification": params.get("window_set") or "—",
+            }
+        )
+    top = [result for result in results if result.get("val_pnl") is not None][:12]
+    chart = {
+        "scatter": scatter,
+        "top": {
+            "labels": [
+                f"#{result['rank']} {result['params'].get('window_set')} {result['params'].get('size')}"
+                for result in top
+            ],
+            "val_pnl": [result.get("val_pnl") or 0 for result in top],
+            "val_roi": [(result.get("val_roi") or 0) * 100 for result in top],
+        },
+    }
+    return _render(request, "lab_detail.html", run=run, summary=run.get("summary") or {}, results=results, chart=chart)
 
 
 @router.get("/shadow", response_class=HTMLResponse)

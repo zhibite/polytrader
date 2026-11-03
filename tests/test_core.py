@@ -231,6 +231,31 @@ def test_collector_parses_price_changes_and_trades(db):
     assert row["outcome"] == "UP"
 
 
+def test_sweep_runs_and_stores_results(db):
+    from app.services.sweep import run_sweep
+
+    _seed_market(db)
+    result = run_sweep(
+        "test-sweep",
+        {
+            "days": 1,
+            "offsets": [0.0001],
+            "window_sets": ["all"],
+            "bands": [[0.05, 0.95]],
+            "sizes": [5],
+            "rebates": [0],
+            "fee_bps": 0,
+            "max_cost_per_market": 50,
+            "max_open_cost": 500,
+            "min_val_fills": 1,
+        },
+    )
+    assert result["summary"]["combos"] == 1
+    assert result["results"][0]["fills"] >= 1
+    rows = db.execute("SELECT * FROM sweep_results WHERE run_id=?", ("test-sweep",)).fetchall()
+    assert len(rows) == 1
+
+
 def test_replica_mid_maker(db):
     slug, condition, start = _seed_market(db)
     result = run_replica(

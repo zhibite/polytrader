@@ -348,6 +348,51 @@ CREATE TABLE IF NOT EXISTS replica_trades (
 );
 CREATE INDEX IF NOT EXISTS idx_replica_trades_run ON replica_trades(run_id);
 
+CREATE TABLE IF NOT EXISTS sweep_runs (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'QUEUED',
+    params_json TEXT,
+    summary_json TEXT,
+    created_at INTEGER NOT NULL,
+    finished_at INTEGER,
+    error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sweep_results (
+    run_id TEXT NOT NULL,
+    combo_id TEXT NOT NULL,
+    params_json TEXT NOT NULL,
+    family TEXT NOT NULL DEFAULT 'mid_maker',
+    train_pnl REAL,
+    train_roi REAL,
+    train_fills INTEGER,
+    train_win_rate REAL,
+    val_pnl REAL,
+    val_roi REAL,
+    val_fills INTEGER,
+    val_win_rate REAL,
+    pnl REAL,
+    roi REAL,
+    fills INTEGER,
+    win_rate REAL,
+    cost REAL,
+    max_drawdown REAL,
+    score REAL,
+    rank INTEGER,
+    PRIMARY KEY (run_id, combo_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_sweep_results_rank ON sweep_results(run_id, rank);
+
+CREATE TABLE IF NOT EXISTS strategies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    family TEXT NOT NULL,
+    params_json TEXT NOT NULL,
+    metrics_json TEXT,
+    source_run TEXT,
+    created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS monitor_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     address TEXT NOT NULL,

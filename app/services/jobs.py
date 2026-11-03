@@ -207,11 +207,16 @@ def run_job(job: dict[str, Any]) -> None:
                 )
             finally:
                 conn.close()
+            profile = summary.get("profile") or {}
             update_job(
                 job_id,
                 status="DONE",
                 progress=100,
-                message=json.dumps(summary, ensure_ascii=False)[:900],
+                message=(
+                    f"ingest 完成：fills={summary.get('fills', 0):,}, "
+                    f"pairs={summary.get('pairs', 0):,}, "
+                    f"profile={profile.get('classification_label', '—')}"
+                ),
                 finished_at=now_ts(),
             )
             return
@@ -245,11 +250,16 @@ def run_job(job: dict[str, Any]) -> None:
                 run_id=job_id,
                 progress=_progress_callback(job_id),
             )
+            summary = result.get("summary") or {}
             update_job(
                 job_id,
                 status="DONE",
                 progress=100,
-                message=json.dumps(result.get("summary", {}), ensure_ascii=False)[:900],
+                message=(
+                    f"Shadow 完成：copied={summary.get('copied', 0):,}, "
+                    f"PnL=${summary.get('pnl', 0):,.2f}, "
+                    f"ROI={(summary.get('roi') or 0) * 100:.2f}%; run=/shadow/{job_id}"
+                ),
                 finished_at=now_ts(),
             )
             return
@@ -263,11 +273,34 @@ def run_job(job: dict[str, Any]) -> None:
                 run_id=job_id,
                 progress=_progress_callback(job_id),
             )
+            summary = result.get("summary") or {}
             update_job(
                 job_id,
                 status="DONE",
                 progress=100,
-                message=json.dumps(result.get("summary", {}), ensure_ascii=False)[:900],
+                message=(
+                    f"Replica 完成：trades={summary.get('trades', 0):,}, "
+                    f"PnL=${summary.get('pnl', 0):,.2f}, "
+                    f"ROI={(summary.get('roi') or 0) * 100:.2f}%; run=/replica/{job_id}"
+                ),
+                finished_at=now_ts(),
+            )
+            return
+        if kind == "sweep":
+            from .sweep import run_sweep
+
+            result = run_sweep(run_id=job_id, params=params, progress=_progress_callback(job_id))
+            summary = result.get("summary") or {}
+            best = summary.get("best") or {}
+            update_job(
+                job_id,
+                status="DONE",
+                progress=100,
+                message=(
+                    f"Sweep 完成：combos={summary.get('combos', 0):,}, "
+                    f"best val ROI={(best.get('val_roi') or 0) * 100:.2f}%, "
+                    f"val PnL=${best.get('val_pnl', 0):,.2f}; run=/lab/{job_id}"
+                ),
                 finished_at=now_ts(),
             )
             return
@@ -279,7 +312,11 @@ def run_job(job: dict[str, Any]) -> None:
                 job_id,
                 status="DONE",
                 progress=100,
-                message=json.dumps(result, ensure_ascii=False)[:900],
+                message=(
+                    f"monitor 完成：fills={result.get('fills', 0):,}, "
+                    f"entry_edge={(result.get('entry_edge') or 0) * 100:.2f}¢, "
+                    f"markout_end={(result.get('markout_end') or 0) * 100:.2f}¢"
+                ),
                 finished_at=now_ts(),
             )
             return

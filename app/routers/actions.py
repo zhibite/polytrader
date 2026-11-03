@@ -107,6 +107,100 @@ def regenerate_profile(request: Request, address: str, days: Annotated[int, Form
     return _redirect(request, f"/wallets/{address.lower()}?days={days}", job)
 
 
+@router.post("/actions/sweep")
+def create_sweep(
+    request: Request,
+    days: Annotated[int, Form()] = 7,
+    offsets: Annotated[list[str] | None, Form()] = None,
+    window_sets: Annotated[list[str] | None, Form()] = None,
+    bands: Annotated[list[str] | None, Form()] = None,
+    sizes: Annotated[list[str] | None, Form()] = None,
+    rebates: Annotated[list[str] | None, Form()] = None,
+    fee_bps: Annotated[float, Form()] = 0.0,
+    max_cost_per_market: Annotated[float, Form()] = 25.0,
+    max_open_cost: Annotated[float, Form()] = 500.0,
+    min_val_fills: Annotated[int, Form()] = 10,
+):
+    def _floats(values: list[str] | None, default: list[float]) -> list[float]:
+        if not values:
+            return default
+        out = []
+        for value in values:
+            try:
+                out.append(float(value))
+            except (TypeError, ValueError):
+                continue
+        return out or default
+
+    band_values = []
+    for raw in bands or []:
+        try:
+            low, high = str(raw).split("-", 1)
+            band_values.append([float(low), float(high)])
+        except (TypeError, ValueError):
+            continue
+    params = {
+        "days": days,
+        "offsets": _floats(offsets, [0.002, 0.003, 0.005, 0.008]),
+        "window_sets": window_sets or ["all", "target", "early", "mid", "late"],
+        "bands": band_values or [[0.30, 0.90], [0.50, 0.90]],
+        "sizes": _floats(sizes, [5.0, 10.0, 20.0]),
+        "rebates": _floats(rebates, [0.0, 45.0]),
+        "fee_bps": fee_bps,
+        "max_cost_per_market": max_cost_per_market,
+        "max_open_cost": max_open_cost,
+        "min_val_fills": min_val_fills,
+    }
+    job = create_job("sweep", None, params)
+    return _redirect(request, "/lab", job)
+
+
+@router.post("/actions/strategies")
+def save_strategy_action(
+    request: Request,
+    name: Annotated[str, Form()] = "",
+    run_id: Annotated[str, Form()] = "",
+    combo_id: Annotated[str, Form()] = "",
+):
+    from ..services.sweep import save_strategy
+
+    conn = connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM sweep_results WHERE run_id=? AND combo_id=?",
+            (run_id, combo_id),
+        ).fetchone()
+        if not row:
+            return _redirect(request, f"/lab/{run_id}")
+        import json
+
+        params = json.loads(row["params_json"] or "{}")
+        metrics = {
+            "pnl": row["pnl"],
+            "roi": row["roi"],
+            "fills": row["fills"],
+            "win_rate": row["win_rate"],
+            "max_drawdown": row["max_drawdown"],
+            "train_pnl": row["train_pnl"],
+            "train_roi": row["train_roi"],
+            "train_fills": row["train_fills"],
+            "val_pnl": row["val_pnl"],
+            "val_roi": row["val_roi"],
+            "val_fills": row["val_fills"],
+            "val_win_rate": row["val_win_rate"],
+        }
+        save_strategy(
+            name.strip() or f"strategy-{combo_id[:24]}",
+            row["family"] or "mid_maker",
+            params,
+            metrics,
+            run_id,
+        )
+    finally:
+        conn.close()
+    return _redirect(request, f"/lab/{run_id}")
+
+
 @router.post("/actions/monitor")
 def monitor_now(request: Request, address: Annotated[str | None, Form()] = None):
     targets = [address.lower()] if address else []

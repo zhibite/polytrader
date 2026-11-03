@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import kpi, status_badge, empty_state %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}Sweep {{ run.id }}{% endblock %}
+{% block page_title %}Strategy Lab 结果{% endblock %}
+{% block page_subtitle %}{{ run.id }} · train / validation 参数扫描{% endblock %}
+
+{% block content %}
+{% set best = summary.best or {} %}
+{% set bp = best.params or {} %}
+<div class="detail-head">
+  <div class="detail-title">
+    <div class="row"><h2>{{ run.id }}</h2>{{ status_badge(run.status) }}<span class="chip">{{ summary.combos|num }} combos</span></div>
+    <div class="addr">mid_maker · {{ summary.days or "—" }} 天 · {{ summary.markets|num }} 个市场</div>
+  </div>
+  <a class="btn btn-sm" href="/lab">{{ icon("arrow-left", 14) }} 返回实验室</a>
+</div>
+
+{% if run.status == "RUNNING" %}
+<div class="card"><div class="card-body">{{ empty_state("扫描进行中", "结果会在任务完成后出现；回到实验室页面可看 job 进度。") }}</div></div>
+{% elif not results %}
+<div class="card"><div class="card-body">{{ empty_state("没有扫描结果", run.error or "检查 samples 是否可用，或放宽参数。") }}</div></div>
+{% else %}
+
+<div class="kpi-grid" style="margin-bottom:14px">
+  {{ kpi("Best Val ROI", best.val_roi|pct, "按验证集 ROI 排序", "green" if (best.val_roi or 0) > 0 else "red") }}
+  {{ kpi("Best Val PnL", best.val_pnl|money(2), (best.val_fills or 0)|num ~ " 笔验证成交", "green" if (best.val_pnl or 0) > 0 else "red") }}
+  {{ kpi("Best 参数", "offset " ~ (bp.offset or "—"), (bp.window_set or "—") ~ " · " ~ (bp.band or "—") ~ " · size " ~ (bp.size or "—") ~ " · " ~ (bp.rebate_bps or 0) ~ "bps") }}
+  {{ kpi("Train ROI", best.train_roi|pct, (best.train_fills or 0)|num ~ " 笔训练成交") }}
+  {{ kpi("Max Drawdown", best.max_drawdown|money(2), "按日累计 PnL") }}
+  {{ kpi("总 PnL", best.pnl|money(2), (best.fills or 0)|num ~ " 笔成交") }}
+  {{ kpi("单市场上限", summary.max_cost_per_market|money(0), "总敞口 " ~ (summary.max_open_cost|money(0))) }}
+  {{ kpi("窗口组 / 价格带", ((summary.window_sets or [])|length)|num ~ " / " ~ ((summary.bands or [])|length)|num, "参数网格") }}
+</div>
+
+<div class="grid grid-2" style="margin-bottom:14px">
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">Train vs Validation ROI</div><div class="card-sub">每个点是一组参数；避免只挑训练集峰值</div></div></div>
+    <div class="card-body"><div id="resultScatter" class="chart chart-lg"></div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">Top 12 · Validation PnL</div><div class="card-sub">按排名</div></div></div>
+    <div class="card-body"><div id="topBar" class="chart chart-lg"></div></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <div><div class="card-title">参数排名</div><div class="card-sub">展示 Top 60；保存后可在实验室页面查看</div></div>
+    <span class="badge badge-neutral">{{ results|length }} 行</span>
+  </div>
+  <div class="card-body flush">
+    <div class="table-wrap" style="max-height:720px">
+      <table>
+        <thead><tr><th>#</th><th>Offset</th><th>窗口组</th><th>价格带</th><th class="num">Size</th><th class="num">返佣</th><th class="num">Train PnL</th><th class="num">Train ROI</th><th class="num">Val PnL</th><th class="num">Val ROI</th><th class="num">Val Fills</th><th class="num">Max DD</th><th>保存</th></tr></thead>
+        <tbody>
+        {% for item in results %}
+          {% set p = item.params %}
+          <tr>
+            <td class="muted">#{{ item.rank }}</td>
+            <td class="mono">{{ p.offset }}</td>
+            <td>{{ p.window_set }}</td>
+            <td class="mono">{{ p.band[0] }}–{{ p.band[1] }}</td>
+            <td class="num">{{ p.size }}</td>
+            <td class="num">{{ p.rebate_bps }}bps</td>
+            <td class="num {{ 'positive' if (item.train_pnl or 0) > 0 else 'negative' }}">{{ item.train_pnl|money(2) }}</td>
+            <td class="num">{{ item.train_roi|pct }}</td>
+            <td class="num {{ 'positive' if (item.val_pnl or 0) > 0 else 'negative' }}">{{ item.val_pnl|money(2) }}</td>
+            <td class="num {{ 'positive' if (item.val_roi or 0) > 0 else 'negative' }}">{{ item.val_roi|pct }}</td>
+            <td class="num soft">{{ item.val_fills|num }}</td>
+            <td class="num negative">{{ item.max_drawdown|money(2) }}</td>
+            <td>
+              <form method="post" action="/actions/strategies" class="row" style="gap:5px;flex-wrap:nowrap">
+                <input type="hidden" name="run_id" value="{{ run.id }}">
+                <input type="hidden" name="combo_id" value="{{ item.combo_id }}">
+                <input class="input" name="name" placeholder="命名" style="padding:5px 7px;font-size:11px;width:92px">
+                <button class="btn btn-sm" type="submit">保存</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="alert alert-warn" style="margin-top:14px">
+  回测使用 1 秒 last price 与 next-tick 穿越模型，未模拟队列位置、撤单延迟、腿风险；
+  train/validation 只是时间切分，不等同于未来收益。保存策略后请用前向纸盘验证。
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if results %}
+<script>
+  const C = {{ chart|tojson }};
+  if (C.scatter && C.scatter.length) {
+    LabCharts.scatter("resultScatter", C.scatter, { xTitle: "Train ROI %", yTitle: "Validation ROI %" });
+  }
+  if (C.top && C.top.labels.length) {
+    LabCharts.bar("topBar", C.top.labels, [{ name: "Val PnL $", data: C.top.val_pnl }], { money: true, colors: ["#34d399"] });
+  }
+</script>
+{% endif %}
+{% endblock %}
