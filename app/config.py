@@ -35,6 +35,19 @@ class Settings(BaseSettings):
     monitor_interval_hours: float = 6.0
     monitor_window_days: int = 7
 
+    # Automated research pipeline: ingest -> 3 sweep rounds -> paper strategy.
+    auto_pipeline_hours: float = 6.0
+    auto_pipeline_days: int = 7
+    auto_pipeline_rounds: int = 3
+    auto_pipeline_top_k: int = 8
+    auto_pipeline_max_cost_per_market: float = 25.0
+    auto_pipeline_max_open_cost: float = 500.0
+
+    # Forward paper trading on live collector data.
+    paper_enabled: bool = True
+    paper_tick_seconds: float = 10.0
+    paper_starting_balance: float = 500.0
+
     demo_seed: bool = False
 
     api_base: str = "https://data-api.polymarket.com/v2"

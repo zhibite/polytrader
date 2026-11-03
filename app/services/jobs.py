@@ -286,6 +286,29 @@ def run_job(job: dict[str, Any]) -> None:
                 finished_at=now_ts(),
             )
             return
+        if kind == "pipeline":
+            from .pipeline import run_pipeline
+
+            result = run_pipeline(
+                job_id=job_id,
+                address=address,
+                params=params,
+                progress=_progress_callback(job_id),
+            )
+            best = result.get("best") or {}
+            update_job(
+                job_id,
+                status="DONE",
+                progress=100,
+                message=(
+                    f"Pipeline 完成：fills={((result.get('ingest') or {}).get('fills') or 0):,}, "
+                    f"best val ROI={(best.get('val_roi') or 0) * 100:.2f}%, "
+                    f"paper={result.get('paper_strategy_id') or '—'}; "
+                    f"run=/lab/{best.get('run_id') or '—'}"
+                ),
+                finished_at=now_ts(),
+            )
+            return
         if kind == "sweep":
             auto_rounds = int(params.get("auto_rounds", 1) or 1)
             if auto_rounds > 1:

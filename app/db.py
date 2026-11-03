@@ -393,6 +393,75 @@ CREATE TABLE IF NOT EXISTS strategies (
     created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS paper_strategies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source_run TEXT,
+    params_json TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    starting_balance REAL NOT NULL,
+    cash REAL NOT NULL,
+    realized_pnl REAL NOT NULL DEFAULT 0,
+    fees_paid REAL NOT NULL DEFAULT 0,
+    last_tick_at INTEGER,
+    last_error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS paper_positions (
+    id TEXT PRIMARY KEY,
+    strategy_id TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    condition_id TEXT,
+    outcome TEXT NOT NULL,
+    shares REAL NOT NULL,
+    cost REAL NOT NULL,
+    avg_price REAL NOT NULL,
+    opened_at INTEGER NOT NULL,
+    market_end INTEGER,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    resolved TEXT,
+    payout REAL,
+    settlement_pnl REAL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(strategy_id, slug, outcome)
+);
+CREATE INDEX IF NOT EXISTS idx_paper_positions_strategy ON paper_positions(strategy_id, status);
+
+CREATE TABLE IF NOT EXISTS paper_trades (
+    id TEXT PRIMARY KEY,
+    strategy_id TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    condition_id TEXT,
+    outcome TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    price REAL NOT NULL,
+    shares REAL NOT NULL,
+    notional REAL NOT NULL,
+    mid REAL,
+    window_label TEXT,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_paper_trades_strategy ON paper_trades(strategy_id, ts);
+
+CREATE TABLE IF NOT EXISTS paper_equity (
+    strategy_id TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    cash REAL NOT NULL,
+    positions_value REAL NOT NULL,
+    equity REAL NOT NULL,
+    realized_pnl REAL NOT NULL,
+    unrealized_pnl REAL NOT NULL,
+    PRIMARY KEY (strategy_id, ts)
+);
+
+CREATE TABLE IF NOT EXISTS paper_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS monitor_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     address TEXT NOT NULL,

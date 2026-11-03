@@ -6,6 +6,12 @@
 {% block page_title %}Strategy Lab{% endblock %}
 {% block page_subtitle %}参数网格扫描 · train / validation 拆分 · 保存我们自己的策略{% endblock %}
 
+{% block topbar_actions %}
+<form method="post" action="/actions/pipeline">
+  <button class="btn btn-primary btn-sm" type="submit">{{ icon("play", 14) }} 立即运行自动流水线</button>
+</form>
+{% endblock %}
+
 {% block content %}
 <div class="card" style="margin-bottom:14px">
   <div class="card-head">
@@ -63,7 +69,7 @@
 
       <div class="form-actions">
         <button class="btn btn-primary" type="submit">{{ icon("play", 14) }} 开始扫描</button>
-        <span class="muted tiny">默认第 1 轮 240 组；自动取 Top K，围绕最优 offset/窗口/价格带生成第 2、3 轮细网格。结果按 validation ROI 排序，返回 Top 60。</span>
+        <span class="muted tiny">默认第 1 轮 240 组；自动取 Top K，围绕最优 offset/窗口/价格带生成第 2、3 轮细网格。自动流水线每 6 小时执行 ingest → 3 轮扫描 → 自动激活纸盘。</span>
       </div>
     </form>
   </div>

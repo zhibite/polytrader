@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 
-from ..db import connect, now_ts
+from ..db import connect, now_ts, set_state
 from ..services.collector import manager
 from ..services.jobs import create_job
 
@@ -156,6 +156,27 @@ def create_sweep(
         "top_k": max(1, top_k),
     }
     job = create_job("sweep", None, params)
+    return _redirect(request, "/lab", job)
+
+
+@router.post("/actions/pipeline")
+def run_pipeline_now(request: Request):
+    from ..config import get_settings
+
+    settings = get_settings()
+    job = create_job(
+        "pipeline",
+        settings.target_address,
+        {
+            "days": settings.auto_pipeline_days,
+            "auto_rounds": settings.auto_pipeline_rounds,
+            "top_k": settings.auto_pipeline_top_k,
+            "max_cost_per_market": settings.auto_pipeline_max_cost_per_market,
+            "max_open_cost": settings.auto_pipeline_max_open_cost,
+            "starting_balance": settings.paper_starting_balance,
+        },
+    )
+    set_state("last_auto_pipeline_ts", str(now_ts()))
     return _redirect(request, "/lab", job)
 
 

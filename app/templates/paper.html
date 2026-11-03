@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import empty_state %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}前向纸盘{% endblock %}
+{% block page_title %}前向纸盘{% endblock %}
+{% block page_subtitle %}用 collector 实时数据模拟成交，不碰私钥、不下真实订单{% endblock %}
+
+{% block topbar_actions %}
+<form method="post" action="/actions/pipeline">
+  <button class="btn btn-primary btn-sm" type="submit">{{ icon("play", 14) }} 运行自动流水线</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="alert alert-info" style="margin-bottom:14px">
+  自动流水线每 6 小时执行：ingest 最近 7 天 → 3 轮参数扫描 → 保存最优配置 → 自动激活纸盘。
+  纸盘读取当前 BTC 5m 的 collector 盘口/成交，在 trade print 穿过我们的 bid 时模拟成交，持有到结算。
+</div>
+
+<div class="card">
+  <div class="card-head"><div><div class="card-title">纸盘策略</div><div class="card-sub">{{ strategies|length }} 个 · 只有 active 策略会开新仓</div></div></div>
+  <div class="card-body flush">
+    {% if strategies %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>策略</th><th>状态</th><th>参数</th><th class="num">起始资金</th><th class="num">Cash</th><th class="num">已实现 PnL</th><th class="num">持仓</th><th class="num">成交</th><th>创建</th><th></th></tr></thead>
+        <tbody>
+        {% for item in strategies %}
+          <tr>
+            <td><strong>{{ item.name }}</strong><div class="mono muted tiny">{{ item.id }}</div></td>
+            <td>{% if item.active %}<span class="badge badge-ok">active</span>{% else %}<span class="badge badge-neutral">inactive</span>{% endif %}</td>
+            <td class="small">
+              offset {{ item.params.offset }} · {{ item.params.window_set or "" }} · {{ item.params.band }} · size {{ item.params.size }} · {{ item.params.rebate_bps }}bps
+            </td>
+            <td class="num">{{ item.starting_balance|money(0) }}</td>
+            <td class="num">{{ item.cash|money(2) }}</td>
+            <td class="num {{ 'positive' if (item.realized_pnl or 0) > 0 else 'negative' }}">{{ item.realized_pnl|money(2) }}</td>
+            <td class="num">{{ item.open_positions|num }}</td>
+            <td class="num">{{ item.fills|num }}</td>
+            <td class="muted small">{{ item.created_at|ts("%m-%d %H:%M") }}</td>
+            <td class="right"><a class="btn btn-sm" href="/paper/{{ item.id }}">详情</a></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      {{ empty_state("还没有纸盘策略", "点击右上角「运行自动流水线」，或等 6 小时定时任务；流水线会保存最优参数并自动激活。") }}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

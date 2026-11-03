@@ -284,6 +284,65 @@ def test_auto_sweep_refines_rounds(db):
     assert len(rows) >= 1
 
 
+def test_paper_engine_opens_and_settles(db):
+    from app.db import set_state
+    from app.services.paper import activate_paper_strategy, paper_tick
+
+    now = now_ts()
+    start = (now // 300) * 300
+    slug = f"btc-updown-5m-{start}"
+    condition = "0x" + "cd" * 32
+    db.execute(
+        """INSERT OR REPLACE INTO collector_markets(
+             slug, asset, period, condition_id, start_epoch, end_epoch,
+             up_token, down_token, status, discovered_at, updated_at)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+        (slug, "btc", "5m", condition, start, start + 300, "up-token", "down-token",
+         "open", now, now),
+    )
+    for token, outcome, mid in (("up-token", "UP", 0.50), ("down-token", "DOWN", 0.50)):
+        db.execute(
+            """INSERT INTO collector_books(
+                 slug, token_id, outcome, ts, best_bid, best_ask, mid, spread,
+                 bid_depth, ask_depth, raw_json)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (slug, token, outcome, now, mid - 0.01, mid + 0.01, mid, 0.02, 10, 10, None),
+        )
+        db.execute(
+            """INSERT INTO collector_trades(
+                 slug, token_id, outcome, ts, price, size, side, raw_json)
+               VALUES(?,?,?,?,?,?,?,?)""",
+            (slug, token, outcome, now, 0.49, 10, "SELL", None),
+        )
+    db.commit()
+    strategy_id = activate_paper_strategy(
+        "test-paper",
+        {
+            "offset": 0.001,
+            "windows": ["0-30s", "30-60s", "1-2m", "2-3m", "3-4m", "4-5m"],
+            "band": [0.05, 0.95],
+            "size": 5,
+            "max_cost_per_market": 25,
+            "max_open_cost": 500,
+            "fee_bps": 0,
+            "rebate_bps": 0,
+        },
+        starting_balance=500,
+    )
+    paper_tick()
+    assert db.execute("SELECT COUNT(*) AS n FROM paper_trades").fetchone()["n"] == 2
+    assert db.execute("SELECT COUNT(*) AS n FROM paper_positions WHERE status='OPEN'").fetchone()["n"] == 2
+
+    db.execute("UPDATE markets SET resolved='UP', end_epoch=? WHERE slug=?", (now - 1, slug))
+    db.execute("UPDATE paper_positions SET market_end=? WHERE strategy_id=?", (now - 1, strategy_id))
+    db.commit()
+    set_state("paper_last_resolution_fetch", str(now))
+    paper_tick()
+    position = db.execute("SELECT * FROM paper_positions WHERE strategy_id=?", (strategy_id,)).fetchone()
+    assert position["status"] == "SETTLED"
+    assert position["settlement_pnl"] is not None
+
+
 def test_replica_mid_maker(db):
     slug, condition, start = _seed_market(db)
     result = run_replica(

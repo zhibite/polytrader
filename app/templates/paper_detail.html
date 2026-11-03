@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import kpi, empty_state %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}纸盘 {{ strategy.id }}{% endblock %}
+{% block page_title %}纸盘策略{% endblock %}
+{% block page_subtitle %}{{ strategy.name }}{% endblock %}
+
+{% block content %}
+{% set points = strategy.equity or [] %}
+{% set last = points[-1] if points else None %}
+{% set positions = strategy.positions or [] %}
+{% set trades = strategy.trades or [] %}
+{% set open_positions = positions|selectattr("status", "equalto", "OPEN")|list %}
+
+<div class="detail-head">
+  <div class="detail-title">
+    <div class="row">
+      <h2>{{ strategy.name }}</h2>
+      {% if strategy.active %}<span class="badge badge-ok">active</span>{% else %}<span class="badge badge-neutral">inactive</span>{% endif %}
+    </div>
+    <div class="addr mono">{{ strategy.id }} · source {{ strategy.source_run or "—" }}</div>
+  </div>
+  <a class="btn btn-sm" href="/paper">{{ icon("arrow-left", 14) }} 返回纸盘</a>
+</div>
+
+<div class="kpi-grid" style="margin-bottom:14px">
+  {{ kpi("起始资金", strategy.starting_balance|money(0), "paper only") }}
+  {{ kpi("Cash", strategy.cash|money(2), "扣除开仓成本 / 加回结算") }}
+  {{ kpi("Equity", (last.equity if last else strategy.cash)|money(2), "最新权益", "green" if (last.equity if last else strategy.cash) >= strategy.starting_balance else "red") }}
+  {{ kpi("已实现 PnL", strategy.realized_pnl|money(2), "settled positions", "green" if (strategy.realized_pnl or 0) > 0 else "red") }}
+  {{ kpi("未实现 PnL", (last.unrealized_pnl if last else None)|money(2), "按最新 mid 估值") }}
+  {{ kpi("Open 持仓", open_positions|length|num, "最多每市场 Up/Down 各一") }}
+  {{ kpi("成交", trades|length|num, "collector trade print 穿越 bid") }}
+  {{ kpi("参数", (strategy.params.offset or "—"), (strategy.params.window_set or "—") ~ " · " ~ (strategy.params.band or "—") ~ " · " ~ (strategy.params.rebate_bps or 0) ~ "bps") }}
+</div>
+
+<div class="card" style="margin-bottom:14px">
+  <div class="card-head"><div><div class="card-title">权益曲线</div><div class="card-sub">每分钟一个点</div></div></div>
+  <div class="card-body"><div id="equityChart" class="chart chart-lg"></div></div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">持仓</div><div class="card-sub">{{ positions|length }} 条（最近 200）</div></div></div>
+    <div class="card-body flush">
+      {% if positions %}
+      <div class="table-wrap" style="max-height:420px">
+        <table>
+          <thead><tr><th>市场</th><th>结果</th><th class="num">Shares</th><th class="num">均价</th><th class="num">成本</th><th>状态</th><th class="num">Payout</th><th class="num">PnL</th></tr></thead>
+          <tbody>
+          {% for item in positions %}
+            <tr>
+              <td class="mono truncate" style="max-width:170px">{{ item.slug }}</td>
+              <td>{{ item.outcome }}</td>
+              <td class="num">{{ item.shares|num(2) }}</td>
+              <td class="num">{{ item.avg_price|price(3) }}</td>
+              <td class="num">{{ item.cost|money(2) }}</td>
+              <td><span class="badge badge-{{ 'ok' if item.status == 'SETTLED' else 'warn' }}">{{ item.status }}</span></td>
+              <td class="num">{{ item.payout|money(2) }}</td>
+              <td class="num {{ 'positive' if (item.settlement_pnl or 0) > 0 else 'negative' }}">{{ item.settlement_pnl|money(2) }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<div class="table-empty">还没有持仓</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">成交</div><div class="card-sub">{{ trades|length }} 条（最近 300）</div></div></div>
+    <div class="card-body flush">
+      {% if trades %}
+      <div class="table-wrap" style="max-height:420px">
+        <table>
+          <thead><tr><th>时间</th><th>市场</th><th>结果</th><th class="num">价格</th><th class="num">Shares</th><th class="num">Notional</th><th class="num">Mid</th><th>窗口</th></tr></thead>
+          <tbody>
+          {% for item in trades %}
+            <tr>
+              <td class="muted small nowrap">{{ item.ts|ts("%m-%d %H:%M:%S") }}</td>
+              <td class="mono truncate" style="max-width:160px">{{ item.slug }}</td>
+              <td>{{ item.outcome }}</td>
+              <td class="num">{{ item.price|price(3) }}</td>
+              <td class="num">{{ item.shares|num(2) }}</td>
+              <td class="num">{{ item.notional|money(2) }}</td>
+              <td class="num soft">{{ item.mid|price(3) }}</td>
+              <td>{{ item.window_label }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<div class="table-empty">还没有成交</div>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const C = {{ chart|tojson }};
+  if (C.labels && C.labels.length) {
+    LabCharts.line("equityChart", C.labels, [
+      { name: "Equity $", data: C.equity },
+      { name: "已实现 PnL $", data: C.realized }
+    ], { money: true });
+  }
+</script>
+{% endblock %}

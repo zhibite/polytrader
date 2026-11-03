@@ -12,6 +12,7 @@ from ..services import discovery as discovery_service
 from ..services import metrics
 from ..services import collector as collector_service
 from ..services import sweep as sweep_service
+from ..services import paper as paper_service
 from ..services.jobs import get_job, list_jobs
 from ..services.monitor import drift, snapshot_rows
 from ..services.profiles import cluster_wallets
@@ -32,6 +33,7 @@ NAV = [
     {"href": "/lab", "label": "策略实验室", "icon": "target"},
     {"href": "/shadow", "label": "Shadow 复刻", "icon": "layers"},
     {"href": "/replica", "label": "Replica 纸盘", "icon": "flask"},
+    {"href": "/paper", "label": "前向纸盘", "icon": "flask"},
     {"href": "/monitor", "label": "持续监控", "icon": "pulse"},
     {"href": "/collector", "label": "行情采集", "icon": "signal"},
 ]
@@ -368,6 +370,35 @@ def replica_detail(request: Request, run_id: str):
         "daily": [item["daily"] for item in equity],
     }
     return _render(request, "replica_detail.html", run=run, summary=summary, chart=chart)
+
+
+@router.get("/paper", response_class=HTMLResponse)
+def paper_page(request: Request):
+    conn = connect()
+    try:
+        strategies = paper_service.list_strategies(conn)
+    finally:
+        conn.close()
+    return _render(request, "paper.html", strategies=strategies)
+
+
+@router.get("/paper/{strategy_id}", response_class=HTMLResponse)
+def paper_detail(request: Request, strategy_id: str):
+    conn = connect()
+    try:
+        strategy = paper_service.get_strategy(conn, strategy_id)
+    finally:
+        conn.close()
+    if not strategy:
+        return _render(request, "not_found.html", message="纸盘策略不存在")
+    equity = strategy.get("equity") or []
+    chart = {
+        "labels": [datetime.fromtimestamp(point["ts"], timezone.utc).strftime("%m-%d %H:%M") for point in equity],
+        "equity": [point["equity"] for point in equity],
+        "realized": [point["realized_pnl"] for point in equity],
+        "positions": [point["positions_value"] for point in equity],
+    }
+    return _render(request, "paper_detail.html", strategy=strategy, chart=chart)
 
 
 @router.get("/monitor", response_class=HTMLResponse)

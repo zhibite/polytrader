@@ -12,7 +12,8 @@ Polymarket 交易者行为归因与策略研究平台。目标不是“跟单”
 | 批量归因 | `/wallets`、`/wallets/{address}` | SQLite 队列 + 限速/重试/断点续跑；逐笔 entry edge、markout、配对成本、双边比例、持仓、返佣、时段/价格带、集中度 |
 | 策略画像与聚类 | `/wallets/{address}`、`/compare` | 规则打分分类：HFT 做市 / 方向性 taker / 配对套利 / 长尾买入 / 波段 / 返佣型；多钱包特征矩阵与 KMeans 聚类 |
 | Shadow / Replica | `/shadow`、`/replica` | Shadow：同价/延迟复刻目标成交；Replica：用推断的报价偏移、窗口、价格带、库存独立跑纸盘 |
-| 策略实验室 | `/lab` | 参数网格扫描、train/validation 拆分、按验证集 ROI 排名、保存我们自己的策略配置 |
+| 策略实验室 | `/lab` | 参数网格扫描、自动多轮细化、train/validation、按验证集 ROI 排名、保存策略配置 |
+| 前向纸盘 | `/paper` | 用 collector 实时数据模拟成交，展示策略权益、持仓与成交；不碰私钥、不下真实订单 |
 | 持续监控 | `/monitor` | 定时快照，跟踪 entry edge、markout、返佣、配对成本、成交量的漂移与告警 |
 | 行情采集 | `/collector` | WebSocket 订阅 BTC 5m CLOB market channel，采集 book/price_change/last_trade_price；同时轮询目标钱包最新成交 |
 
@@ -164,6 +165,24 @@ docker compose up -d --build
 注意：回测使用 1 秒 last price + next-tick 穿越，未模拟队列位置、撤单延迟和腿风险；
 train/validation 只是时间切分，不等于未来收益。保存策略后必须再做前向纸盘验证。
 
+## 自动流水线
+
+应用默认每 **6 小时**自动执行一次研究流水线（`LAB_AUTO_PIPELINE_HOURS=6`）：
+
+```text
+ingest 最近 7 天成交
+  → 自动跑 3 轮参数扫描（Round 1 粗网格，之后取 Top K 细化）
+  → 保存最优参数到 strategies
+  → 自动激活一个新的前向纸盘策略
+```
+
+- 纸盘用 collector 的实时盘口/成交，在 trade print 穿过我们的 bid 时模拟成交，持有到结算；
+- 旧纸盘策略会被置为 inactive，但未结算持仓仍会继续结算；
+- 纸盘只做模拟，不使用私钥、不签名、不下单；
+- 自动流水线可在 `/lab` 手动触发；`LAB_AUTO_PIPELINE_HOURS=0` 可关闭。
+
+多轮细化仍然是在同一段历史上做局部搜索，不等于未来收益；纸盘前向结果才是第一道真实检验。
+
 ## Shadow / Replica
 
 - **Shadow**：把目标窗口内的 BUY 成交按同价（delay=0）或 t+delay 的 mid 复制，持有到结算。
@@ -203,6 +222,8 @@ app/
     shadow.py             Shadow 复算
     replica.py            离线 Replica 模拟
     sweep.py              参数网格扫描 + train/validation + 策略保存
+    pipeline.py           ingest → 自动多轮扫描 → 保存/激活纸盘
+    paper.py              前向纸盘引擎（collector 实时数据）
     monitor.py            快照与漂移
     collector.py          BTC 5m WebSocket 采集
     discovery.py          leaderboard 同步
