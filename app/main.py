@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import binascii
-import hmac
 import logging
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 
 from fastapi import FastAPI, Request
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from .auth import COOKIE_NAME, credentials_ok, parse_basic, read_session
 from .config import get_settings
 from .db import connect, ensure_target_wallet, get_state, init_db
 from .routers import actions, api, pages
+from .routers import auth as auth_router
 from .services.collector import manager as collector_manager
 from .services.demo import seed_demo
 from .services.jobs import JobWorker, reset_stale_jobs
@@ -94,39 +94,41 @@ app = FastAPI(
 )
 
 
+PUBLIC_PREFIXES = ("/static/",)
+PUBLIC_PATHS = {"/login", "/logout", "/api/health", "/favicon.ico"}
+
+
 @app.middleware("http")
-async def basic_auth(request: Request, call_next):
-    """Optional HTTP Basic Auth for the public deployment.
+async def auth_middleware(request: Request, call_next):
+    """Session login for browsers, Basic Auth for scripts/API.
 
     ``/api/health`` stays open so Coolify/Docker health checks keep working.
     """
-    if (
-        settings.basic_auth_user
-        and settings.basic_auth_password
-        and request.url.path != "/api/health"
-    ):
-        header = request.headers.get("authorization", "")
-        if not header.startswith("Basic "):
-            return Response(
-                status_code=401,
-                content="Authentication required",
-                headers={"WWW-Authenticate": 'Basic realm="Trader Strategy Lab"'},
-            )
-        try:
-            decoded = base64.b64decode(header.removeprefix("Basic ")).decode("utf-8")
-        except (binascii.Error, UnicodeDecodeError):
-            decoded = ""
-        expected = f"{settings.basic_auth_user}:{settings.basic_auth_password}"
-        if not hmac.compare_digest(decoded, expected):
-            return Response(
-                status_code=401,
-                content="Invalid credentials",
-                headers={"WWW-Authenticate": 'Basic realm="Trader Strategy Lab"'},
-            )
-    return await call_next(request)
+    if not settings.auth_enabled:
+        return await call_next(request)
+    path = request.url.path
+    if path in PUBLIC_PATHS or any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
+        return await call_next(request)
+
+    # Programmatic access keeps working with the same credentials.
+    username, password = parse_basic(request.headers.get("authorization"))
+    if credentials_ok(username, password):
+        return await call_next(request)
+
+    if read_session(request.cookies.get(COOKIE_NAME)):
+        return await call_next(request)
+
+    if path.startswith("/api/"):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+
+    next_path = path
+    if request.url.query:
+        next_path = f"{next_path}?{request.url.query}"
+    return RedirectResponse(f"/login?next={quote(next_path, safe='')}", status_code=303)
 
 
 app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
+app.include_router(auth_router.router)
 app.include_router(pages.router)
 app.include_router(actions.router)
 app.include_router(api.router)

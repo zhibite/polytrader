@@ -70,7 +70,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8011
 
 ```bash
 cp .env.example .env
-# 编辑 .env：至少设置 LAB_TARGET_ADDRESS；公网部署请设置 LAB_BASIC_AUTH_*
+# 编辑 .env：至少设置 LAB_TARGET_ADDRESS；公网部署请设置 LAB_AUTH_USER / LAB_AUTH_PASSWORD / LAB_SESSION_SECRET
 docker compose up -d --build
 ```
 
@@ -173,7 +173,7 @@ docker compose up -d --build
 
 ```text
 app/
-  main.py                 FastAPI 入口 / lifespan / basic auth
+  main.py                 FastAPI 入口 / lifespan / session login + API Basic Auth
   config.py               LAB_* 环境变量
   db.py                   SQLite schema 与连接
   templating.py           Jinja2 filters

@@ -11,3 +11,4 @@ scikit-learn>=1.5
 pydantic>=2.7
 pydantic-settings>=2.4
 python-dotenv>=1.0
+itsdangerous>=2.2

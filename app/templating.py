@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi.templating import Jinja2Templates
+from jinja2 import Undefined, UndefinedError
 
 from .config import get_settings
 
@@ -13,10 +14,10 @@ templates = Jinja2Templates(directory=str(settings.templates_dir))
 
 def _float(value: Any) -> float | None:
     try:
-        if value is None or value == "":
+        if value is None or isinstance(value, Undefined) or value == "":
             return None
         return float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, UndefinedError):
         return None
 
 
@@ -158,4 +159,5 @@ templates.env.globals.update(
     app_name=settings.app_name,
     app_version=settings.app_version,
     target_address=settings.target_address,
+    auth_enabled=settings.auth_enabled,
 )

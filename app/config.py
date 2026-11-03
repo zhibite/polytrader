@@ -45,10 +45,17 @@ class Settings(BaseSettings):
 
     timezone: str = "UTC"
 
-    # Optional HTTP Basic Auth for public deployments. Leave both empty for
-    # local/trusted use (e.g. behind an SSH tunnel).
+    # Web login credentials. The legacy LAB_BASIC_AUTH_* names are still
+    # accepted as a fallback so existing deployments keep working.
+    auth_user: str | None = None
+    auth_password: str | None = None
     basic_auth_user: str | None = None
     basic_auth_password: str | None = None
+
+    # Signed session cookie for the web login page. If unset, it is derived
+    # from the login password (sessions invalidate when the password changes).
+    session_secret: str | None = None
+    cookie_secure: bool = False
 
     model_config = SettingsConfigDict(
         env_prefix="LAB_",
@@ -77,6 +84,26 @@ class Settings(BaseSettings):
     @property
     def is_docker(self) -> bool:
         return os.path.exists("/.dockerenv")
+
+    @property
+    def login_user(self) -> str | None:
+        return self.auth_user or self.basic_auth_user
+
+    @property
+    def login_password(self) -> str | None:
+        return self.auth_password or self.basic_auth_password
+
+    @property
+    def auth_enabled(self) -> bool:
+        return bool(self.login_user and self.login_password)
+
+    @property
+    def session_secret_key(self) -> str:
+        if self.session_secret:
+            return self.session_secret
+        # Stable per deployment unless the password changes. Production
+        # deployments should set LAB_SESSION_SECRET explicitly.
+        return f"{self.login_password or 'dev'}::trader-strategy-lab-session"
 
 
 @lru_cache(maxsize=1)

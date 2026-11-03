@@ -54,6 +54,7 @@
       <div class="topbar-right">
         {% block topbar_actions %}{% endblock %}
         <span class="chip">{{ icon("target", 13) }} <span class="mono">{{ target_address|short_addr }}</span></span>
+        {% if auth_enabled %}<a class="btn btn-sm btn-ghost" href="/logout">退出</a>{% endif %}
       </div>
     </header>
 

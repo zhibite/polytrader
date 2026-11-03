@@ -22,15 +22,18 @@ LAB_DEFAULT_WINDOW_DAYS=30
 LAB_INGEST_MAX_TRADES=130000
 LAB_ENRICH_MAX_TRADES=40000
 
-# 公网部署强烈建议开启 Basic Auth
-LAB_BASIC_AUTH_USER=trader
-LAB_BASIC_AUTH_PASSWORD=<long-random-password>
+# 公网部署强烈建议开启 Web 登录
+LAB_AUTH_USER=trader
+LAB_AUTH_PASSWORD=<long-random-password>
+LAB_SESSION_SECRET=<long-random-secret>
+LAB_COOKIE_SECURE=1
+# 兼容旧配置：未设置 LAB_AUTH_* 时会回退到 LAB_BASIC_AUTH_*
 ```
 
 7. Health check：
    - Path：`/api/health`
    - Port：`8021`
-   - `/api/health` 不受 Basic Auth 保护。
+   - `/api/health` 不受登录保护。
 8. Deploy。
 
 首次启动后：
@@ -122,7 +125,8 @@ PY
 
 ## 六、安全
 
-- 应用默认**没有用户系统**。公网部署务必设置 `LAB_BASIC_AUTH_USER` / `LAB_BASIC_AUTH_PASSWORD`。
+- 应用默认**没有用户系统**。公网部署务必设置 `LAB_AUTH_USER` / `LAB_AUTH_PASSWORD`；旧版 `LAB_BASIC_AUTH_*` 仍兼容。
+- 浏览器使用 `/login` 网页登录（签名 session cookie）；脚本/API 仍可用同一组凭据走 HTTP Basic Auth。
 - 更稳妥的做法：只通过 Coolify/Traefik 的访问控制、VPN 或 SSH 隧道暴露。
 - 应用只读公开成交与行情，不下单、不签名、不接触私钥。
 - 不要在环境变量里放 Polymarket API Key；本项目不需要任何交易凭证。
@@ -131,7 +135,7 @@ PY
 
 | 现象 | 排查 |
 |---|---|
-| `/api/health` 正常但页面 401 | 设置了 Basic Auth，浏览器输入用户名/密码 |
+| `/api/health` 正常但页面跳转 `/login` | 正常：浏览器需要网页登录；脚本请带 Basic Auth |
 | ingest 卡在 `fetching all fills` | Data API 限速；降低 `LAB_REQUEST_RATE`（如 1.5），等待退避 |
 | 任务重启后从 0 开始 | `ingest_checkpoints` 已清理（成功完成）或 `days` 变了；断点只在同 `(address, days, stream)` 下生效 |
 | 大量成交没有 markout | 该日期没有挂载数据集，future.news 也拿不到样本；检查 `LAB_KLINES_DATASET_DIR` / 网络 |

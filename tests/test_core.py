@@ -154,6 +154,42 @@ def test_insights_are_generated():
     assert all("title" in item and "body" in item for item in insights)
 
 
+def test_filters_handle_jinja_undefined():
+    from jinja2 import Undefined
+
+    from app.templating import cents, money, pct, price
+
+    assert price(Undefined(name="weighted_pair_cost")) == "—"
+    assert money(Undefined(name="m")) == "—"
+    assert pct(Undefined(name="p")) == "—"
+    assert cents(Undefined(name="c")) == "—"
+
+
+def test_auth_session_helpers(monkeypatch):
+    from app.auth import (
+        credentials_ok,
+        issue_session,
+        read_session,
+        safe_next,
+    )
+
+    monkeypatch.setenv("LAB_AUTH_USER", "alice")
+    monkeypatch.setenv("LAB_AUTH_PASSWORD", "secret")
+    monkeypatch.setenv("LAB_SESSION_SECRET", "test-secret")
+    get_settings.cache_clear()
+    try:
+        assert credentials_ok("alice", "secret") is True
+        assert credentials_ok("alice", "wrong") is False
+        token = issue_session("alice")
+        assert read_session(token) == "alice"
+        assert read_session(token + "x") is None
+        assert safe_next("/wallets/0x1?days=7") == "/wallets/0x1?days=7"
+        assert safe_next("//evil.example") == "/"
+        assert safe_next("https://evil.example") == "/"
+    finally:
+        get_settings.cache_clear()
+
+
 def test_collector_parses_price_changes_and_trades(db):
     import json
 

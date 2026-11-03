@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>登录 · {{ app_name }}</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<div class="login-page">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="brand-mark">TL</div>
+      <div>
+        <div class="login-title">Trader Strategy Lab</div>
+        <div class="login-sub">Polymarket 交易者行为归因与策略研究</div>
+      </div>
+    </div>
+
+    {% if error %}
+    <div class="login-error">{{ error }}</div>
+    {% endif %}
+
+    <form class="login-form" method="post" action="/login">
+      <input type="hidden" name="next" value="{{ next }}">
+      <label class="field">
+        <span>用户名</span>
+        <input class="input" type="text" name="username" value="{{ username }}" autocomplete="username" autofocus required>
+      </label>
+      <label class="field">
+        <span>密码</span>
+        <input class="input" type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <button class="btn btn-primary" type="submit" style="margin-top:4px">登录</button>
+    </form>
+
+    <div class="login-note">
+      浏览器使用网页会话登录；脚本/API 仍可使用 <code>HTTP Basic Auth</code> 访问。
+    </div>
+    <div class="login-footer">
+      <span>{{ app_name }}</span>
+      <span>v{{ app_version }}</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>
