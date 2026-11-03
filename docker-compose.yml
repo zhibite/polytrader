@@ -4,7 +4,7 @@ services:
     container_name: polytrader-lab
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8021:8021"
     volumes:
       - lab_data:/app/data
       # Optional: mount the pre-built 1-second kline dataset read-only.

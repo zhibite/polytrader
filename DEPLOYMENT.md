@@ -8,7 +8,7 @@
 1. 把本目录推到 Git 仓库（GitHub / Gitee / 自建 Git 均可）。
 2. Coolify → **New Resource** → **Application** → 选择仓库。
 3. Build Pack 选择 **Dockerfile**（仓库根目录已有 `Dockerfile`）。
-4. 端口设为 `8000`。
+4. 端口设为 `8021`（与 Dockerfile 的 `PORT` / `EXPOSE` 一致）。
 5. **Persistent Storage**：
    - Volume mount path：`/app/data`
    - 建议使用 named volume 或宿主机目录，例如 `/data/polytrader-lab:/app/data`
@@ -29,7 +29,7 @@ LAB_BASIC_AUTH_PASSWORD=<long-random-password>
 
 7. Health check：
    - Path：`/api/health`
-   - Port：`8000`
+   - Port：`8021`
    - `/api/health` 不受 Basic Auth 保护。
 8. Deploy。
 
