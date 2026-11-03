@@ -1,0 +1,88 @@
+{% from "partials/icons.html" import icon %}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ app_name }}{% endblock %} · {{ app_name }}</title>
+  <meta name="description" content="Polymarket 交易者行为归因、策略画像、Shadow / Replica 研究平台">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="stylesheet" href="/static/vendor/apexcharts.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <a class="brand" href="/" style="color:inherit">
+      <div class="brand-mark">TL</div>
+      <div class="brand-text">
+        <span class="brand-name">Trader Lab</span>
+        <span class="brand-sub">Polymarket Research</span>
+      </div>
+    </a>
+    <nav class="nav">
+      <div class="nav-label">Research</div>
+      {% for item in nav %}
+        {% set active = current_path == item.href or (item.href != "/" and current_path.startswith(item.href)) %}
+        <a href="{{ item.href }}" class="{{ 'active' if active else '' }}">
+          {{ icon(item.icon) }}<span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+    <div class="sidebar-foot">
+      <div class="status-pill">
+        <span class="dot js-collector-dot"></span>
+        <span class="js-collector-text">采集器状态…</span>
+      </div>
+      <div class="status-pill">
+        <span class="dot ok"></span>
+        <span>数据平面 · server</span>
+      </div>
+      <div class="muted">v{{ app_version }} · {{ now.strftime("%Y-%m-%d") if now else "" }}</div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="burger" type="button" aria-label="menu">{{ icon("menu", 18) }}</button>
+        <div>
+          <h1>{% block page_title %}Trader Strategy Lab{% endblock %}</h1>
+          <div class="sub">{% block page_subtitle %}Polymarket 钱包行为归因与策略复刻{% endblock %}</div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        {% block topbar_actions %}{% endblock %}
+        <span class="chip">{{ icon("target", 13) }} <span class="mono">{{ target_address|short_addr }}</span></span>
+      </div>
+    </header>
+
+    <main class="content">
+      {% if job %}
+      <div class="jobbar card" data-job="{{ job.id }}" style="border-color:rgba(91,140,255,.35)">
+        <div class="card-body" style="padding:12px 15px">
+          <div class="row-between">
+            <div class="row" style="gap:8px">
+              <span class="badge badge-{{ job.status|status_tone }} js-job-status">{{ job.status }}</span>
+              <strong class="small">{{ job.kind }}</strong>
+              <span class="muted small js-job-message">{{ job.message or job.error or "" }}</span>
+            </div>
+            <span class="muted tiny mono">{{ job.id }}</span>
+          </div>
+          <div class="bar"><i style="width: {{ job.progress or 2 }}%"></i></div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+
+<script src="/static/vendor/apexcharts.min.js"></script>
+<script src="/static/vendor/htmx.min.js"></script>
+<script src="/static/vendor/alpine.min.js" defer></script>
+<script src="/static/js/app.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

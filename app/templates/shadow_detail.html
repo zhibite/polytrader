@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import kpi, status_badge, empty_state %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}Shadow {{ run.id }}{% endblock %}
+{% block page_title %}Shadow 结果{% endblock %}
+{% block page_subtitle %}{{ run.id }} · {{ run.address }}{% endblock %}
+
+{% block content %}
+<div class="detail-head">
+  <div class="detail-title">
+    <div class="row"><h2>{{ run.id }}</h2>{{ status_badge(run.status) }}</div>
+    <div class="addr">目标 {{ run.address }} · delay {{ summary.delay_s|num(0) if summary.delay_s is defined else "—" }}s · size ×{{ summary.size_scale|num(2) if summary.size_scale is defined else "—" }}</div>
+  </div>
+  <a class="btn btn-sm" href="/shadow">{{ icon("arrow-left", 14) }} 返回列表</a>
+</div>
+
+{% if summary.empty %}
+<div class="card"><div class="card-body">{{ empty_state("没有可复制的成交", "检查目标窗口内是否有数据，或先运行 ingest。") }}</div></div>
+{% else %}
+<div class="kpi-grid" style="margin-bottom:14px">
+  {{ kpi("复制成交", summary.copied|num, (summary.skipped_sells or 0)|num ~ " 笔 SELL 跳过") }}
+  {{ kpi("Shadow PnL", summary.pnl|money(2), "持有到结算", "green" if (summary.pnl or 0) > 0 else "red") }}
+  {{ kpi("目标同批 PnL", summary.target_pnl|money(2), "同一批成交的目标实现", "green" if (summary.target_pnl or 0) > 0 else "red") }}
+  {{ kpi("ROI", summary.roi|pct, "PnL / 成本") }}
+  {{ kpi("胜率", summary.win_rate|pct, (summary.copied or 0)|num ~ " 笔") }}
+  {{ kpi("平均 entry edge", summary.avg_entry_edge|cents, "成交价相对 mid") }}
+  {{ kpi("平均到结算", summary.avg_markout_end|cents, "中位 " ~ (summary.median_markout_end|cents)) }}
+  {{ kpi("成本", summary.cost|money(0), "复制买入成本", "amber") }}
+</div>
+
+<div class="chart-grid" style="margin-bottom:14px">
+  <div class="card"><div class="card-head"><div><div class="card-title">每日 PnL</div><div class="card-sub">Shadow 复制结果</div></div></div><div class="card-body"><div id="dayChart" class="chart"></div></div></div>
+  <div class="card"><div class="card-head"><div><div class="card-title">按价格带</div><div class="card-sub">PnL 归因</div></div></div><div class="card-body"><div id="bucketChart" class="chart"></div></div></div>
+  <div class="card"><div class="card-head"><div><div class="card-title">按市场窗口</div><div class="card-sub">0-30s / 1-2m / …</div></div></div><div class="card-body"><div id="windowChart" class="chart"></div></div></div>
+  <div class="card"><div class="card-head"><div><div class="card-title">解读</div><div class="card-sub">Shadow vs 目标</div></div></div><div class="card-body">
+    <div class="verdict">
+      如果 Shadow 同价复刻 PnL 明显低于目标，说明目标的钱不只来自成交价，还来自选市场/选时/挂单位置；
+      如果 Shadow 接近目标，说明“成交价 + 结算 + 返佣”本身就是可复制的主要来源。
+    </div>
+    <div class="stat-line" style="margin-top:10px"><span class="k">Shadow / 目标 PnL</span><span class="v">{{ (summary.pnl / summary.target_pnl)|pct if summary.target_pnl else "—" }}</span></div>
+    <div class="stat-line"><span class="k">每笔平均 PnL</span><span class="v">{{ (summary.pnl / summary.copied)|money(3) if summary.copied else "—" }}</span></div>
+  </div></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><div><div class="card-title">复制明细</div><div class="card-sub">最近 500 笔</div></div></div>
+  <div class="card-body flush">
+    <div class="table-wrap" style="max-height:560px">
+      <table>
+        <thead><tr><th>时间</th><th>市场</th><th>结果</th><th>方向</th><th class="num">目标价</th><th class="num">复制价</th><th class="num">Size</th><th class="num">PnL</th><th class="num">Entry edge</th><th class="num">到结算</th></tr></thead>
+        <tbody>
+        {% for trade in run.trades %}
+          <tr>
+            <td class="muted nowrap">{{ trade.ts|ts("%m-%d %H:%M:%S") }}</td>
+            <td class="mono truncate" style="max-width:180px">{{ trade.slug }}</td>
+            <td>{{ trade.outcome }}</td>
+            <td>{{ trade.side }}</td>
+            <td class="num">{{ trade.target_price|price(3) }}</td>
+            <td class="num">{{ trade.copy_price|price(3) }}</td>
+            <td class="num">{{ trade.size|num(2) }}</td>
+            <td class="num {{ 'positive' if (trade.pnl or 0) > 0 else 'negative' }}">{{ trade.pnl|money(3) }}</td>
+            <td class="num {{ 'positive' if (trade.entry_edge or 0) > 0 else 'negative' }}">{{ trade.entry_edge|cents }}</td>
+            <td class="num {{ 'positive' if (trade.markout_end or 0) > 0 else 'negative' }}">{{ trade.markout_end|cents }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if not summary.empty %}
+<script>
+  const C = {{ chart|tojson }};
+  if (C.by_day.labels.length) LabCharts.bar("dayChart", C.by_day.labels, [{name:"PnL $", data: C.by_day.pnl}], {money:true, colors:["#34d399"]});
+  if (C.by_bucket.labels.length) LabCharts.bar("bucketChart", C.by_bucket.labels, [{name:"PnL $", data: C.by_bucket.pnl}], {money:true, colors:["#8b5cf6"]});
+  if (C.by_window.labels.length) LabCharts.bar("windowChart", C.by_window.labels, [{name:"PnL $", data: C.by_window.pnl}], {money:true, colors:["#5b8cff"]});
+</script>
+{% endif %}
+{% endblock %}

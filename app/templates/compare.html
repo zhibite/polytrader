@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import class_badge, empty_state %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}对比与聚类{% endblock %}
+{% block page_title %}对比与聚类{% endblock %}
+{% block page_subtitle %}把多个交易者放到同一组特征空间里，找“同一类策略”{% endblock %}
+
+{% block content %}
+{% if rows|length < 2 %}
+<div class="card"><div class="card-body">
+  {{ empty_state("至少跟踪两个钱包才能对比", "先在发现页导入多个交易者，或手工添加地址。", "/discover", "去发现交易者") }}
+</div></div>
+{% else %}
+
+<div class="chart-grid" style="margin-bottom:14px">
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">Maker 占比 vs Entry edge</div><div class="card-sub">气泡大小 ≈ 日均成交笔数</div></div></div>
+    <div class="card-body"><div id="scatter1" class="chart" style="min-height:320px"></div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">返佣占比 vs 配对成本</div><div class="card-sub">返佣依赖 vs 配对锁定</div></div></div>
+    <div class="card-body"><div id="scatter2" class="chart" style="min-height:320px"></div></div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:14px">
+  <div class="card-head"><div><div class="card-title">特征矩阵</div><div class="card-sub">{{ rows|length }} 个钱包 · 最近一次画像</div></div>
+    <div class="row">
+      {% for cluster in clusters|groupby("cluster_label") %}
+        <span class="chip">cluster {{ cluster.grouper }} · {{ cluster.list|length }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card-body flush">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>钱包</th><th>分类</th><th>Cluster</th><th class="num">Maker</th><th class="num">Fills/day</th><th class="num">Entry edge</th><th class="num">到结算</th><th class="num">返佣/PnL</th><th class="num">Pair cost</th><th class="num">双边</th><th class="num">持仓中位</th><th></th></tr></thead>
+        <tbody>
+        {% for row in rows %}
+          {% set f = row.features %}
+          <tr>
+            <td><a href="/wallets/{{ row.address }}" style="color:var(--text);font-weight:600">{{ row.label or row.address|short_addr }}</a><div class="mono muted tiny">{{ row.address }}</div></td>
+            <td>{{ class_badge(row.classification) }}</td>
+            <td>{% if row.cluster %}<span class="chip">{{ row.cluster }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td class="num">{{ f.maker_share|pct }}</td>
+            <td class="num">{{ f.fills_per_day|num(0) }}</td>
+            <td class="num {{ 'positive' if (f.entry_edge_mean or 0) > 0 else 'negative' }}">{{ f.entry_edge_mean|cents }}</td>
+            <td class="num {{ 'positive' if (f.markout_end or 0) > 0 else 'negative' }}">{{ f.markout_end|cents }}</td>
+            <td class="num">{{ f.rebate_share_of_economic|pct }}</td>
+            <td class="num">{{ f.weighted_pair_cost|price(3) }}</td>
+            <td class="num">{{ f.two_sided_ratio|pct }}</td>
+            <td class="num soft">{{ (f.median_hold_min * 60)|duration if f.median_hold_min else "—" }}</td>
+            <td class="right"><a class="btn btn-sm" href="/wallets/{{ row.address }}">Dossier</a></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-3">
+  {% for row in rows %}
+    {% if row.verdict %}
+    <div class="card">
+      <div class="card-head"><div><div class="card-title">{{ row.label or row.address|short_addr }}</div><div class="card-sub">{{ row.classification }}</div></div></div>
+      <div class="card-body">
+        <p class="soft small" style="line-height:1.75">{{ row.verdict }}</p>
+      </div>
+    </div>
+    {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if rows|length >= 2 %}
+<script>
+  LabCharts.scatter("scatter1", {{ scatter|tojson }}, { xTitle: "Maker 占比 %", yTitle: "Entry edge ¢" });
+  LabCharts.scatter("scatter2", {{ rebate_scatter|tojson }}, { xTitle: "返佣 / 经济 PnL %", yTitle: "加权配对成本" });
+</script>
+{% endif %}
+{% endblock %}

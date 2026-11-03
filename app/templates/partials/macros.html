@@ -1,0 +1,54 @@
+{% from "partials/icons.html" import icon %}
+
+{% macro kpi(label, value, sub=None, tone="") -%}
+<div class="kpi {{ tone }}">
+  <div class="kpi-label">{{ label }}</div>
+  <div class="kpi-value">{{ value }}</div>
+  {% if sub %}<div class="kpi-sub">{{ sub }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro class_badge(label) -%}
+{% if label %}<span class="badge badge-{{ label|tone }}">{{ label }}</span>{% else %}<span class="badge badge-neutral">未分类</span>{% endif %}
+{%- endmacro %}
+
+{% macro status_badge(status) -%}
+<span class="badge badge-{{ status|status_tone }}">{{ status }}</span>
+{%- endmacro %}
+
+{% macro job_table(jobs) -%}
+{% if jobs %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>任务</th><th>地址</th><th>状态</th><th class="num">进度</th><th>信息</th><th>时间</th></tr></thead>
+  <tbody>
+  {% for job in jobs %}
+    <tr>
+      <td><span class="mono">{{ job.kind }}</span></td>
+      <td class="mono">{{ job.address|short_addr if job.address else "—" }}</td>
+      <td>{{ status_badge(job.status) }}</td>
+      <td class="num">{{ job.progress|num(0) }}%</td>
+      <td class="soft small truncate" style="max-width: 360px;">{{ job.error or job.message or "—" }}</td>
+      <td class="muted small nowrap">{{ job.created_at|ts("%m-%d %H:%M") }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="table-empty">还没有任务</div>
+{% endif %}
+{%- endmacro %}
+
+{% macro empty_state(title, text, href=None, label=None) -%}
+<div class="empty">
+  <div style="margin-bottom:10px;opacity:.6">{{ icon("spark", 26) }}</div>
+  <h3>{{ title }}</h3>
+  <p>{{ text }}</p>
+  {% if href %}<div style="margin-top:14px"><a class="btn btn-primary btn-sm" href="{{ href }}">{{ label or "开始" }}</a></div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro stat_line(key, value, klass="") -%}
+<div class="stat-line"><span class="k">{{ key }}</span><span class="v {{ klass }}">{{ value }}</span></div>
+{%- endmacro %}

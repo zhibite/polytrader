@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import kpi, class_badge, job_table, empty_state, status_badge %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}总览{% endblock %}
+{% block page_title %}Trader Strategy Lab{% endblock %}
+{% block page_subtitle %}从公开成交反推 Polymarket 交易者的策略结构{% endblock %}
+
+{% block topbar_actions %}
+  <a class="btn btn-sm" href="/discover">{{ icon("compass", 14) }} 发现交易者</a>
+  {% if target %}
+  <form method="post" action="/actions/ingest/{{ target.address }}" style="display:inline">
+    <input type="hidden" name="days" value="7">
+    <input type="hidden" name="enrich_max_trades" value="40000">
+    <button class="btn btn-primary btn-sm" type="submit">{{ icon("refresh", 14) }} 更新目标数据</button>
+  </form>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+{% set has_target = target and target.fills %}
+{% set ov = dossier.features.overview if dossier and dossier.features else {} %}
+{% set ex = dossier.features.execution if dossier and dossier.features else {} %}
+{% set pair = dossier.features.pairing if dossier and dossier.features else {} %}
+{% set rb = dossier.features.rebates if dossier and dossier.features else {} %}
+{% set profile = dossier.profile if dossier else None %}
+
+{% if not has_target %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-body">
+    <div class="row-between">
+      <div>
+        <h2 style="font-size:18px">先建立目标钱包的数据快照</h2>
+        <p class="soft small" style="margin-top:6px;max-width:720px">
+          目标地址 <span class="mono">{{ target_address }}</span> 已内置。点击下方按钮，服务器会拉取
+          Data API v2 的成交、活动、返佣与结算数据，并尝试用 1 秒 Up/Down 行情计算 entry edge 与 markout。
+          首次运行建议 7 天 / 4 万笔 enrichment。
+        </p>
+      </div>
+      <form method="post" action="/actions/ingest/{{ target_address }}" class="form" style="min-width:260px">
+        <div class="form-row">
+          <label class="field"><span>天数</span><input class="input" type="number" name="days" value="7" min="1" max="365"></label>
+          <label class="field"><span>最大成交</span><input class="input" type="number" name="max_trades" value="130000" min="1000" step="1000"></label>
+        </div>
+        <label class="field"><span>Enrich 上限</span><input class="input" type="number" name="enrich_max_trades" value="40000" min="0" step="1000"></label>
+        <button class="btn btn-primary" type="submit">{{ icon("download", 15) }} 开始采集</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="kpi-grid" style="margin-bottom:14px">
+  {{ kpi("被跟踪钱包", total_wallets|num, "手动 + 排行榜导入") }}
+  {{ kpi("累计成交", total_trades|num, "所有钱包 fills") }}
+  {{ kpi("累计成交额", total_volume|money(0), "Data API 全周期", "green") }}
+  {% if profile %}
+    {{ kpi("策略分类", profile.classification or "—", "conf " ~ ((profile.confidence or 0) * 100)|round(0)|int ~ "%", "purple") }}
+  {% else %}
+    {{ kpi("策略分类", "待生成", "运行 ingest 后自动生成", "purple") }}
+  {% endif %}
+  {% if has_target %}
+    {{ kpi("目标 7d 成交", ov.fills|num, (ov.markets or 0)|num ~ " 个市场") }}
+    {{ kpi("Maker 占比", ov.maker_share|pct, (ov.maker or 0)|num ~ " / " ~ (ov.fills or 0)|num ~ " fills") }}
+    {{ kpi("Entry edge", ex.entry_edge_mean|cents, "成交价相对 mid", "green" if (ex.entry_edge_mean or 0) > 0 else "red") }}
+    {{ kpi("到结算 markout", ex.markout_end_mean|cents, "中位 " ~ (ex.markout_end_median|cents), "green" if (ex.markout_end_mean or 0) > 0 else "red") }}
+    {{ kpi("返佣 / 经济 PnL", (rb.lifetime_rebate_share or rb.rebate_share_of_economic)|pct, "全周期 · 窗口 " ~ (rb.rebate_share_of_economic|pct) ~ " · " ~ (rb.maker_rebate|money(0)) ~ " maker rebate", "amber") }}
+    {{ kpi("加权配对成本", pair.weighted_pair_cost|price(3), "双边 " ~ (pair.two_sided_ratio|pct)) }}
+  {% endif %}
+</div>
+
+{% if has_target %}
+<div class="chart-grid" style="margin-bottom:14px">
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">累计 PnL 与返佣</div><div class="card-sub">来自 Data API 全周期 user-pnl 序列（最近 7 天窗口）</div></div></div>
+    <div class="card-body"><div id="pnlChart" class="chart"></div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">每日成交额与成交笔数</div><div class="card-sub">窗口内成交节奏</div></div></div>
+    <div class="card-body"><div id="volChart" class="chart"></div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">Markout 曲线</div><div class="card-sub">成交后 +1s / +10s / +60s / 结算，单位 ¢</div></div></div>
+    <div class="card-body"><div id="markoutChart" class="chart"></div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">按市场窗口拆解</div><div class="card-sub">entry edge 与到结算 markout</div></div></div>
+    <div class="card-body"><div id="windowChart" class="chart"></div></div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-bottom:14px">
+  <div class="card">
+    <div class="card-head">
+      <div><div class="card-title">目标画像</div><div class="card-sub">{{ target.label }}</div></div>
+      {{ class_badge(profile.classification if profile else None) }}
+    </div>
+    <div class="card-body stack">
+      {% if profile and profile.evidence %}
+        <div class="verdict">{{ profile.features.verdict if profile.features else "" }}</div>
+        <div class="tag-row">
+          {% for tag in profile.tags %}<span class="badge badge-{{ tag|tone }}">{{ tag }}</span>{% endfor %}
+        </div>
+        {% if profile.features.insights %}
+        <div class="stack" style="gap:6px">
+          {% for item in profile.features.insights[:3] %}
+          <div class="small"><strong>{{ item.title }}</strong> <span class="soft">· {{ item.body }}</span></div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <div>
+          {% for item in profile.evidence[:4] %}
+          <div class="stat-line">
+            <span class="k"><strong style="color:var(--text)">{{ item.label }}</strong></span>
+            <span class="v muted tiny">{{ item.reasons|join(" · ") }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted small">画像尚未生成。</p>
+      {% endif %}
+      <div class="row">
+        <a class="btn btn-primary btn-sm" href="/wallets/{{ target.address }}">查看完整 Dossier {{ icon("arrow-left", 14) }}</a>
+        <a class="btn btn-sm" href="/shadow">{{ icon("layers", 14) }} 做 Shadow</a>
+        <a class="btn btn-sm" href="/replica">{{ icon("flask", 14) }} 跑 Replica</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">数据采集器</div><div class="card-sub">BTC 5m CLOB market channel</div></div>
+      <span class="badge badge-{{ 'ok' if collector.connected else ('warn' if collector.running else 'bad') }}">{{ '在线' if collector.connected else ('等待' if collector.running else '停止') }}</span>
+    </div>
+    <div class="card-body">
+      <div class="stat-line"><span class="k">当前市场</span><span class="v mono">{{ collector.slug or "—" }}</span></div>
+      <div class="stat-line"><span class="k">消息 / 盘口 / 成交</span><span class="v">{{ collector.messages|num }} / {{ collector.books|num }} / {{ collector.trades|num }}</span></div>
+      <div class="stat-line"><span class="k">最后事件</span><span class="v">{{ collector.last_event_ts|ts("%m-%d %H:%M:%S") if collector.last_event_ts else "—" }}</span></div>
+      {% if collector.last_error %}<div class="alert alert-warn small" style="margin-top:10px">{{ collector.last_error }}</div>{% endif %}
+      <div class="row" style="margin-top:12px">
+        <a class="btn btn-sm" href="/collector">{{ icon("signal", 14) }} 采集详情</a>
+        <form method="post" action="/actions/collector/toggle">
+          <button class="btn btn-sm" type="submit">{{ "停止" if collector.enabled else "启动" }}</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">最近任务</div><div class="card-sub">ingest / discover / shadow / replica / monitor</div></div></div>
+    <div class="card-body flush">{{ job_table(jobs) }}</div>
+  </div>
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">日榜 · Top PnL</div><div class="card-sub">Data API leaderboard 快照</div></div>
+      <a class="btn btn-sm" href="/discover">全部</a>
+    </div>
+    <div class="card-body flush">
+      {% if leaderboard %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>交易者</th><th class="num">PnL</th><th class="num">Volume</th></tr></thead>
+          <tbody>
+          {% for row in leaderboard %}
+            <tr>
+              <td class="muted">{{ row.rank }}</td>
+              <td><a href="/wallets/{{ row.address }}" class="mono">{{ row.user_name or row.address|short_addr }}</a></td>
+              <td class="num {{ 'positive' if (row.pnl or 0) > 0 else 'negative' }}">{{ row.pnl|money(0) }}</td>
+              <td class="num soft">{{ row.volume|money(0) }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        {{ empty_state("还没有排行榜数据", "点击右侧按钮同步 Polymarket 官方 leaderboard（day/week/month/all）。", "/discover", "去发现交易者") }}
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if has_target %}
+<script>
+  const C = {{ chart|tojson }};
+  if (C.pnl && C.pnl.labels.length) {
+    LabCharts.line("pnlChart", C.pnl.labels, [
+      { name: "经济 PnL", data: C.pnl.economic },
+      { name: "Maker 返佣", data: C.pnl.rebate }
+    ], { money: true });
+  }
+  if (C.daily && C.daily.labels.length) {
+    LabCharts.bar("volChart", C.daily.labels, [
+      { name: "成交额 $", data: C.daily.volume }
+    ], { money: true });
+  }
+  if (C.markout && C.markout.labels.length) {
+    LabCharts.bar("markoutChart", C.markout.labels, [
+      { name: "均值 ¢", data: C.markout.mean }
+    ], { colors: ["#5b8cff"] });
+  }
+  if (C.window && C.window.labels.length) {
+    LabCharts.bar("windowChart", C.window.labels, [
+      { name: "Entry edge ¢", data: C.window.edge },
+      { name: "到结算 ¢", data: C.window.end }
+    ], { colors: ["#5b8cff", "#34d399"] });
+  }
+</script>
+{% endif %}
+{% endblock %}

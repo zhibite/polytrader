@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import kpi, empty_state %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}行情采集{% endblock %}
+{% block page_title %}行情采集{% endblock %}
+{% block page_subtitle %}BTC 5m Up/Down · CLOB WebSocket market channel{% endblock %}
+
+{% block topbar_actions %}
+<form method="post" action="/actions/collector/toggle" style="display:inline">
+  <input type="hidden" name="action" value="{{ 'stop' if status.enabled else 'start' }}">
+  <button class="btn {{ 'btn-danger' if status.enabled else 'btn-primary' }} btn-sm" type="submit">
+    {{ icon("pulse", 14) }} {{ "停止采集" if status.enabled else "启动采集" }}
+  </button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="kpi-grid" style="margin-bottom:14px">
+  {{ kpi("运行状态", "运行中" if status.running else "已停止", "enabled " ~ ("on" if status.enabled else "off"), "green" if status.running else "red") }}
+  {{ kpi("WebSocket", "已连接" if status.connected else "未连接", status.last_error or "—", "green" if status.connected else "amber") }}
+  {{ kpi("当前市场", status.slug or "—", (status.window_start|ts("%H:%M:%S") ~ " → " ~ status.window_end|ts("%H:%M:%S")) if status.window_start else "等待窗口") }}
+  {{ kpi("消息", status.messages|num, "本条连接累计") }}
+  {{ kpi("盘口快照", status.books|num, "每 " ~ 5 ~ "s 一行") }}
+  {{ kpi("成交流", status.trades|num, "last_trade_price") }}
+  {{ kpi("最后事件", status.last_event_ts|ts("%H:%M:%S") if status.last_event_ts else "—", "UTC") }}
+  {{ kpi("目标轮询", (status.target_poll_rows or 0)|num, "每 20s 拉一次目标成交") }}
+</div>
+
+<div class="card" style="margin-bottom:14px">
+  <div class="card-head">
+    <div><div class="card-title">实时盘口 / 成交</div><div class="card-sub">HTMX 每 3 秒刷新；数据落 SQLite</div></div>
+    <span class="chip">{{ icon("signal", 13) }} market channel</span>
+  </div>
+  <div class="card-body flush"
+       hx-get="/api/collector/partial"
+       hx-trigger="load, every 3s"
+       hx-swap="innerHTML">
+    <div class="table-empty">加载中…</div>
+  </div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">最近窗口</div><div class="card-sub">Gamma 发现的市场</div></div></div>
+    <div class="card-body flush">
+      {% if markets %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>窗口</th><th>Slug</th><th>状态</th><th>发现时间</th></tr></thead>
+          <tbody>
+          {% for market in markets %}
+            <tr>
+              <td class="nowrap">{{ market.start_epoch|ts("%m-%d %H:%M") }}</td>
+              <td class="mono truncate" style="max-width:220px">{{ market.slug }}</td>
+              <td><span class="badge badge-neutral">{{ market.status }}</span></td>
+              <td class="muted small">{{ market.discovered_at|ts("%H:%M:%S") }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<div class="table-empty">还没有发现市场</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">采集口径</div><div class="card-sub">为 markout / Shadow / Replica 提供前向数据</div></div></div>
+    <div class="card-body">
+      <div class="stat-line"><span class="k">订阅</span><span class="v mono">wss://ws-subscriptions-clob.polymarket.com/ws/market</span></div>
+      <div class="stat-line"><span class="k">资产</span><span class="v">BTC 5m Up + Down tokens</span></div>
+      <div class="stat-line"><span class="k">事件</span><span class="v">book · price_change · last_trade_price</span></div>
+      <div class="stat-line"><span class="k">写入</span><span class="v">collector_books · collector_trades</span></div>
+      <div class="stat-line"><span class="k">同时</span><span class="v">每 20s 轮询目标钱包最新成交</span></div>
+      <div class="alert alert-info" style="margin-top:12px">
+        采集器只读公开市场数据与目标钱包公开成交，不下单、不签名、不接触私钥。
+        前向数据用于验证历史归因结论，不做实盘交易。
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

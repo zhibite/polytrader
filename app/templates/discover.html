@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import empty_state, status_badge %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}发现交易者{% endblock %}
+{% block page_title %}发现交易者{% endblock %}
+{% block page_subtitle %}Polymarket 官方 leaderboard · top PnL / volume · 多时间窗与分类{% endblock %}
+
+{% block topbar_actions %}
+<form method="post" action="/actions/discover-all">
+  <button class="btn btn-primary btn-sm" type="submit">{{ icon("refresh", 14) }} 同步全部榜单</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="grid grid-2" style="margin-bottom:14px">
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">榜单筛选</div><div class="card-sub">快照时间 {{ captured|ts if captured else "尚未同步" }}</div></div></div>
+    <div class="card-body">
+      <form method="get" action="/discover" class="form">
+        <div class="form-row">
+          <label class="field"><span>时间窗</span>
+            <select class="select" name="period">
+              {% for value in ["day", "week", "month", "all"] %}
+              <option value="{{ value }}" {{ "selected" if period == value else "" }}>{{ value }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="field"><span>分类</span>
+            <select class="select" name="category">
+              {% for value in ["overall", "crypto", "sports", "politics", "culture", "tech"] %}
+              <option value="{{ value }}" {{ "selected" if category == value else "" }}>{{ value }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="field"><span>排序</span>
+            <select class="select" name="sort_by">
+              <option value="PNL" {{ "selected" if sort_by == "PNL" else "" }}>PNL</option>
+              <option value="VOLUME" {{ "selected" if sort_by == "VOLUME" else "" }}>VOLUME</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button class="btn" type="submit">{{ icon("search", 14) }} 查看</button>
+          <button class="btn btn-primary" type="submit" formaction="/actions/discover" formmethod="post">
+            {{ icon("refresh", 14) }} 刷新当前榜单
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">手工添加地址</div><div class="card-sub">不在榜单里的钱包也可以直接跟踪</div></div></div>
+    <div class="card-body">
+      <form method="post" action="/actions/wallet" class="form">
+        <div class="form-row">
+          <label class="field" style="grid-column: span 2"><span>钱包地址</span>
+            <input class="input mono" name="address" placeholder="0x…" required pattern="0x[a-fA-F0-9]{40}">
+          </label>
+          <label class="field"><span>标签</span><input class="input" name="label" placeholder="可选"></label>
+          <label class="field"><span>首轮天数</span><input class="input" type="number" name="days" value="7" min="1" max="365"></label>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">{{ icon("plus", 14) }} 添加并采集</button>
+          <span class="muted tiny">添加后会立即创建 ingest 任务</span>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <div><div class="card-title">{{ period }} · {{ category }} · {{ sort_by }}</div><div class="card-sub">Top {{ rows|length }} · 已跟踪地址会标记</div></div>
+    <span class="badge badge-neutral">{{ captured|ts("%m-%d %H:%M") if captured else "无快照" }}</span>
+  </div>
+  <div class="card-body flush">
+    {% if rows %}
+    <div class="table-wrap" style="max-height:720px">
+      <table>
+        <thead><tr><th>#</th><th>交易者</th><th>地址</th><th class="num">PnL</th><th class="num">Volume</th><th></th></tr></thead>
+        <tbody>
+        {% for row in rows %}
+          <tr>
+            <td class="muted">{{ row.rank }}</td>
+            <td>
+              <div style="font-weight:600">{{ row.user_name or "—" }}</div>
+              {% if row.x_username %}<div class="muted tiny">@{{ row.x_username }}</div>{% endif %}
+            </td>
+            <td class="mono">{{ row.address|short_addr }}</td>
+            <td class="num {{ 'positive' if (row.pnl or 0) > 0 else 'negative' }}">{{ row.pnl|money(0) }}</td>
+            <td class="num soft">{{ row.volume|money(0) }}</td>
+            <td class="right">
+              {% if row.address in wallets %}
+                <a class="btn btn-sm" href="/wallets/{{ row.address }}">已跟踪</a>
+              {% else %}
+                <form method="post" action="/actions/wallet" style="display:inline">
+                  <input type="hidden" name="address" value="{{ row.address }}">
+                  <input type="hidden" name="label" value="{{ row.user_name or '' }}">
+                  <input type="hidden" name="days" value="7">
+                  <button class="btn btn-sm btn-primary" type="submit">{{ icon("plus", 12) }} 跟踪</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      {{ empty_state("当前组合没有快照", "点击右上角「同步全部榜单」拉取 day/week/month/all × overall/crypto 的 PnL 与 Volume 榜单。") }}
+    {% endif %}
+  </div>
+</div>
+
+{% if combos %}
+<div class="card" style="margin-top:14px">
+  <div class="card-head"><div><div class="card-title">已有快照组合</div><div class="card-sub">每个组合保留最近一次抓取</div></div></div>
+  <div class="card-body flush">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>时间窗</th><th>分类</th><th>排序</th><th class="num">行数</th><th>抓取时间</th></tr></thead>
+        <tbody>
+        {% for combo in combos %}
+          <tr>
+            <td>{{ combo.time_period }}</td>
+            <td>{{ combo.category }}</td>
+            <td>{{ combo.sort_by }}</td>
+            <td class="num">{{ combo.n }}</td>
+            <td class="muted small">{{ combo.captured_at|ts }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,55 @@
+{% from "partials/icons.html" import icon %}
+<div class="card-body" style="padding:12px 15px;border-bottom:1px solid var(--border-soft)">
+  <div class="row-between">
+    <div class="row" style="gap:8px">
+      <span class="dot {{ 'ok' if status.connected else ('warn' if status.running else 'bad') }}"></span>
+      <strong class="small">{{ status.slug or "等待当前 5m 窗口" }}</strong>
+      <span class="muted tiny">{{ status.messages|num if status.messages is defined else 0 }} messages · {{ status.books|num if status.books is defined else 0 }} books · {{ status.trades|num if status.trades is defined else 0 }} trades</span>
+    </div>
+    <span class="muted tiny">{{ status.updated_at|ts("%H:%M:%S") if status.updated_at else "—" }}</span>
+  </div>
+  {% if status.last_error %}<div class="alert alert-warn small" style="margin-top:8px">{{ status.last_error }}</div>{% endif %}
+</div>
+<div class="grid grid-2" style="gap:0">
+  <div style="border-right:1px solid var(--border-soft)">
+    <div style="padding:9px 13px;color:var(--muted);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase">最新盘口</div>
+    <div class="table-wrap" style="max-height:280px">
+      <table>
+        <thead><tr><th>时间</th><th>Outcome</th><th class="num">Bid</th><th class="num">Ask</th><th class="num">Mid</th><th class="num">Spread</th></tr></thead>
+        <tbody>
+        {% for row in books %}
+          <tr>
+            <td class="muted small nowrap">{{ row.ts|ts("%H:%M:%S") }}</td>
+            <td><span class="badge badge-{{ 'maker' if row.outcome == 'UP' else 'taker' }}">{{ row.outcome }}</span></td>
+            <td class="num">{{ row.best_bid|price(3) }}</td>
+            <td class="num">{{ row.best_ask|price(3) }}</td>
+            <td class="num">{{ row.mid|price(3) }}</td>
+            <td class="num soft">{{ row.spread|price(3) }}</td>
+          </tr>
+        {% endfor %}
+        {% if not books %}<tr><td colspan="6" class="table-empty">还没有盘口快照</td></tr>{% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div>
+    <div style="padding:9px 13px;color:var(--muted);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase">最新成交</div>
+    <div class="table-wrap" style="max-height:280px">
+      <table>
+        <thead><tr><th>时间</th><th>Outcome</th><th class="num">价格</th><th class="num">Size</th><th>方向</th></tr></thead>
+        <tbody>
+        {% for row in trades %}
+          <tr>
+            <td class="muted small nowrap">{{ row.ts|ts("%H:%M:%S") }}</td>
+            <td>{{ row.outcome }}</td>
+            <td class="num">{{ row.price|price(3) }}</td>
+            <td class="num">{{ row.size|num(2) }}</td>
+            <td><span class="badge badge-neutral">{{ row.side or "—" }}</span></td>
+          </tr>
+        {% endfor %}
+        {% if not trades %}<tr><td colspan="5" class="table-empty">还没有成交打印</td></tr>{% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

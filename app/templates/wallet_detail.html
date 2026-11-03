@@ -1,0 +1,443 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import kpi, class_badge, job_table, empty_state, status_badge %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}{{ wallet.label or address|short_addr }}{% endblock %}
+{% block page_title %}Strategy Dossier{% endblock %}
+{% block page_subtitle %}逐笔归因、markout、配对与返佣结构{% endblock %}
+
+{% block content %}
+{% set ov = dossier.features.overview %}
+{% set ex = dossier.features.execution %}
+{% set horizons = ex.horizons or [] %}
+{% set by_window = ex.by_window or {} %}
+{% set pair = dossier.features.pairing %}
+{% set rb = dossier.features.rebates %}
+{% set timing = dossier.features.timing %}
+{% set profile = dossier.profile %}
+{% set stats = dossier.stats %}
+{% set dec = dossier.decomposition %}
+
+<div class="detail-head">
+  <div class="detail-title">
+    <div class="row" style="gap:8px">
+      <h2>{{ wallet.label or address|short_addr }}</h2>
+      {{ class_badge(profile.classification if profile else None) }}
+      {% if profile and profile.cluster_label %}<span class="chip">{{ profile.cluster_label }}</span>{% endif %}
+      {% if profile and profile.confidence %}<span class="chip">置信度 {{ (profile.confidence * 100)|round(0)|int }}%</span>{% endif %}
+    </div>
+    <div class="addr">{{ address }} <span class="copy" data-copy="{{ address }}">复制</span></div>
+    <div class="tag-row">
+      {% if profile %}{% for tag in profile.tags %}<span class="badge badge-{{ tag|tone }}">{{ tag }}</span>{% endfor %}{% endif %}
+    </div>
+  </div>
+  <div class="row">
+    <div class="pill-row">
+      {% for option in days_options %}
+        <a class="btn btn-sm {{ 'btn-primary' if days == option else '' }}" href="/wallets/{{ address }}?days={{ option }}">{{ "全部" if option == 0 else option ~ "d" }}</a>
+      {% endfor %}
+    </div>
+    <form method="post" action="/actions/ingest/{{ address }}" style="display:inline">
+      <input type="hidden" name="days" value="{{ days if days > 0 else 30 }}">
+      <input type="hidden" name="enrich_max_trades" value="40000">
+      <button class="btn btn-primary btn-sm" type="submit">{{ icon("download", 14) }} 更新数据</button>
+    </form>
+    <a class="btn btn-sm" href="/shadow">{{ icon("layers", 14) }} Shadow</a>
+    <a class="btn btn-sm" href="/replica">{{ icon("flask", 14) }} Replica</a>
+  </div>
+</div>
+
+{% if not ov or ov.empty %}
+<div class="card">
+  <div class="card-body">
+    {{ empty_state("这个窗口还没有成交数据", "运行 ingest 拉取历史成交；首次建议 7 天 / 4 万笔 enrichment。", None) }}
+    <form method="post" action="/actions/ingest/{{ address }}" class="form" style="max-width:620px;margin:0 auto">
+      <div class="form-row">
+        <label class="field"><span>天数</span><input class="input" type="number" name="days" value="7" min="1" max="365"></label>
+        <label class="field"><span>最大成交</span><input class="input" type="number" name="max_trades" value="130000" step="1000"></label>
+        <label class="field"><span>Enrich 上限</span><input class="input" type="number" name="enrich_max_trades" value="40000" step="1000"></label>
+      </div>
+      <button class="btn btn-primary" type="submit">{{ icon("download", 15) }} 开始采集</button>
+    </form>
+  </div>
+</div>
+{% else %}
+
+<div class="kpi-grid" style="margin-bottom:14px">
+  {{ kpi("窗口成交", ov.fills|num, ov.markets|num ~ " 市场 · " ~ ov.slugs|num ~ " slugs") }}
+  {{ kpi("窗口成交额", ov.volume_usdc|money(0), ov.shares|compact ~ " shares") }}
+  {{ kpi("Maker 占比", ov.maker_share|pct, (ov.maker or 0)|num ~ " maker / " ~ (ov.taker or 0)|num ~ " taker", "purple") }}
+  {{ kpi("Entry edge", ex.entry_edge_mean|cents, "中位 " ~ (ex.entry_edge_median|cents), "green" if (ex.entry_edge_mean or 0) > 0 else "red") }}
+  {{ kpi("+60s markout", (horizons[3].mean if horizons|length > 3 else None)|cents, "短期逆向选择", "red" if (horizons[3].mean if horizons|length > 3 else 0) < 0 else "green") }}
+  {{ kpi("到结算 markout", ex.markout_end_mean|cents, "为正 " ~ (horizons[4].positive_share|pct if horizons|length > 4 else "—"), "green" if (ex.markout_end_mean or 0) > 0 else "red") }}
+  {{ kpi("返佣 / 经济 PnL", (rb.lifetime_rebate_share or rb.rebate_share_of_economic)|pct, "全周期 · 窗口 " ~ (rb.rebate_share_of_economic|pct) ~ " · " ~ (rb.maker_rebate|money(0)) ~ " maker rebate", "amber") }}
+  {{ kpi("加权配对成本", pair.weighted_pair_cost|price(3), "双边 " ~ (pair.two_sided_ratio|pct)) }}
+</div>
+
+{% if profile and profile.features and profile.features.verdict %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-body">
+    <div class="row-between" style="margin-bottom:8px">
+      <div class="row"><span class="card-title">策略判断</span>{{ class_badge(profile.classification) }}</div>
+      <span class="muted tiny">generated {{ profile.generated_at|ts("%m-%d %H:%M") }} · 窗口 {{ dossier.days }}d</span>
+    </div>
+    <div class="verdict">{{ profile.features.verdict }}</div>
+  </div>
+</div>
+{% endif %}
+
+{% if profile and profile.features and profile.features.insights %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-head"><div><div class="card-title">研究结论</div><div class="card-sub">规则引擎从当前窗口自动生成，可在「证据与任务」里重算</div></div></div>
+  <div class="card-body">
+    <div class="evidence">
+      {% for item in profile.features.insights %}
+      <div class="item">
+        <h4>{{ item.title }}</h4>
+        <p class="soft small" style="line-height:1.7">{{ item.body }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if dec %}
+<div class="grid grid-2" style="margin-bottom:14px">
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">收益拆解 · 全周期</div><div class="card-sub">仓位 PnL + 返佣 + 手续费 ≈ 经济 PnL</div></div></div>
+    <div class="card-body">
+      {% set l = dec.lifetime %}
+      <div class="stat-line"><span class="k">仓位 PnL（已实现）</span><span class="v {{ 'positive' if (l.realized_pnl or 0) > 0 else 'negative' }}">{{ l.realized_pnl|money(2) }}</span></div>
+      <div class="stat-line"><span class="k">Maker 返佣</span><span class="v positive">{{ l.maker_rebate|money(2) }}</span></div>
+      <div class="stat-line"><span class="k">Taker 返佣</span><span class="v">{{ l.taker_rebate|money(2) }}</span></div>
+      <div class="stat-line"><span class="k">手续费</span><span class="v negative">{{ l.fees|money(2) }}</span></div>
+      <div class="stat-line"><span class="k">经济 PnL</span><span class="v {{ 'positive' if (l.economic_pnl or 0) > 0 else 'negative' }}">{{ l.economic_pnl|money(2) }}</span></div>
+      <div class="stat-line"><span class="k">残差（其他收入/估值差）</span><span class="v muted">{{ l.residual|money(2) }}</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">收益拆解 · 当前窗口</div><div class="card-sub">{{ dossier.days }} 天</div></div></div>
+    <div class="card-body">
+      {% set w = dec.window %}
+      <div class="stat-line"><span class="k">已实现 PnL</span><span class="v {{ 'positive' if (w.realized_pnl or 0) > 0 else 'negative' }}">{{ w.realized_pnl|money(2) }}</span></div>
+      <div class="stat-line"><span class="k">返佣</span><span class="v positive">{{ w.rebates|money(2) }}</span></div>
+      <div class="stat-line"><span class="k">手续费</span><span class="v negative">{{ w.fees|money(2) }}</span></div>
+      <div class="stat-line"><span class="k">经济 PnL</span><span class="v {{ 'positive' if (w.economic_pnl or 0) > 0 else 'negative' }}">{{ w.economic_pnl|money(2) }}</span></div>
+      <div class="stat-line"><span class="k">残差</span><span class="v muted">{{ w.residual|money(2) }}</span></div>
+      <div class="alert alert-info small" style="margin-top:10px">
+        若返佣占比高，说明收益对 maker 返佣规则敏感；若仓位 PnL 占比高，则更依赖成交价与结算 edge。
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="chart-grid" style="margin-bottom:14px">
+  <div class="card"><div class="card-head"><div><div class="card-title">累计 PnL / 返佣</div><div class="card-sub">user-pnl 快照序列</div></div></div><div class="card-body"><div id="pnlChart" class="chart"></div></div></div>
+  <div class="card"><div class="card-head"><div><div class="card-title">每日成交额 / 笔数</div><div class="card-sub">窗口内节奏</div></div></div><div class="card-body"><div id="volChart" class="chart"></div></div></div>
+  <div class="card"><div class="card-head"><div><div class="card-title">Markout 曲线</div><div class="card-sub">均值与中位，单位 ¢</div></div></div><div class="card-body"><div id="markoutChart" class="chart"></div></div></div>
+  <div class="card"><div class="card-head"><div><div class="card-title">按市场窗口</div><div class="card-sub">entry edge vs 到结算 markout</div></div></div><div class="card-body"><div id="windowChart" class="chart"></div></div></div>
+</div>
+
+<div data-tabs>
+  <div class="tabs">
+    <button class="tab active" data-target="tab-overview" type="button">概览</button>
+    <button class="tab" data-target="tab-execution" type="button">执行质量</button>
+    <button class="tab" data-target="tab-pairing" type="button">配对与库存</button>
+    <button class="tab" data-target="tab-trades" type="button">成交明细</button>
+    <button class="tab" data-target="tab-evidence" type="button">证据与任务</button>
+  </div>
+
+  <div id="tab-overview" class="tab-panel active">
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head"><div><div class="card-title">交易时段（UTC）</div><div class="card-sub">按小时统计成交笔数</div></div></div>
+      <div class="card-body"><div id="hourChart" class="chart chart-sm"></div></div>
+    </div>
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">全周期统计</div><div class="card-sub">Data API user-stats / user-pnl</div></div></div>
+        <div class="card-body">
+          {% if stats %}
+          <div class="stat-line"><span class="k">覆盖市场</span><span class="v">{{ stats.markets|num }}</span></div>
+          <div class="stat-line"><span class="k">成交笔数</span><span class="v">{{ stats.fills|num }}</span></div>
+          <div class="stat-line"><span class="k">成交额</span><span class="v">{{ stats.volume_usdc|money(0) }}</span></div>
+          <div class="stat-line"><span class="k">已实现 PnL</span><span class="v {{ 'positive' if (stats.realized_pnl or 0) > 0 else 'negative' }}">{{ stats.realized_pnl|money(0) }}</span></div>
+          <div class="stat-line"><span class="k">经济 PnL</span><span class="v {{ 'positive' if (stats.economic_pnl or 0) > 0 else 'negative' }}">{{ stats.economic_pnl|money(0) }}</span></div>
+          <div class="stat-line"><span class="k">Maker 返佣</span><span class="v positive">{{ stats.maker_rebate|money(0) }}</span></div>
+          <div class="stat-line"><span class="k">Taker 返佣</span><span class="v">{{ stats.taker_rebate|money(0) }}</span></div>
+          <div class="stat-line"><span class="k">手续费</span><span class="v negative">{{ stats.fees|money(0) }}</span></div>
+          <div class="stat-line"><span class="k">加入时间</span><span class="v">{{ stats.join_date|ts("%Y-%m-%d") }}</span></div>
+          {% else %}<p class="muted small">没有全周期统计。</p>{% endif %}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">窗口结构</div><div class="card-sub">{{ dossier.days }} 天</div></div></div>
+        <div class="card-body">
+          <div class="stat-line"><span class="k">成交方向</span><span class="v">BUY {{ (ov.buys or 0)|num }} · SELL {{ (ov.sells or 0)|num }}</span></div>
+          <div class="stat-line"><span class="k">Outcome</span><span class="v">{{ ov.outcomes }}</span></div>
+          <div class="stat-line"><span class="k">资产分布</span><span class="v">{{ ov.assets }}</span></div>
+          {% if profile and profile.features and profile.features.features and profile.features.features.market_participation %}
+          <div class="stat-line"><span class="k">BTC 5m 参与率</span><span class="v">{{ profile.features.features.market_participation|pct }}</span></div>
+          {% endif %}
+          <div class="stat-line"><span class="k">平均 / 中位价格</span><span class="v">{{ ov.avg_price|price(3) }} / {{ ov.median_price|price(3) }}</span></div>
+          <div class="stat-line"><span class="k">平均 / 中位 size</span><span class="v">{{ ov.avg_size|num(1) }} / {{ ov.median_size|num(1) }} shares</span></div>
+          <div class="stat-line"><span class="k">成交间隔中位</span><span class="v">{{ ov.median_gap|duration }}</span></div>
+          <div class="stat-line"><span class="k">每市场成交</span><span class="v">{{ ov.fills_per_market|num(1) }} 笔（max {{ ov.max_fills_market }}）</span></div>
+          <div class="stat-line"><span class="k">市场集中度 HHI</span><span class="v">{{ ov.hhi|price(3) }}</span></div>
+          <div class="stat-line"><span class="k">持仓到结算中位</span><span class="v">{{ (profile.features.features.median_hold_min * 60)|duration if profile and profile.features and profile.features.features and profile.features.features.median_hold_min else "—" }}</span></div>
+          {% if positions %}
+          <div class="section-title" style="margin:14px 0 6px"><h2 style="font-size:13px">当前持仓 Top</h2><div class="line"></div></div>
+          <ul class="list">
+            {% for pos in positions[:5] %}
+            <li><span class="truncate" style="max-width:60%">{{ pos.title or pos.slug }}</span><span class="mono {{ 'positive' if (pos.total_pnl or 0) > 0 else 'negative' }}">{{ pos.total_pnl|money(2) }}</span></li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-execution" class="tab-panel">
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">Horizon 汇总</div><div class="card-sub">仅统计已 enrich 的成交（{{ ex.enriched|num }} 笔）</div></div></div>
+        <div class="card-body flush">
+          <table>
+            <thead><tr><th>指标</th><th class="num">N</th><th class="num">均值</th><th class="num">中位</th><th class="num">为正</th></tr></thead>
+            <tbody>
+            {% for item in horizons %}
+              <tr>
+                <td>{{ item.label }} <span class="muted tiny">{{ item.desc }}</span></td>
+                <td class="num">{{ item.n|num }}</td>
+                <td class="num {{ 'positive' if (item.mean or 0) > 0 else 'negative' }}">{{ item.mean|cents }}</td>
+                <td class="num">{{ item.median|cents }}</td>
+                <td class="num soft">{{ item.positive_share|pct }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">Entry edge 分布</div><div class="card-sub">fill − mid，单位 ¢</div></div></div>
+        <div class="card-body"><div id="edgeHistChart" class="chart"></div></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">按市场窗口</div><div class="card-sub">成交发生在窗口的哪个位置</div></div></div>
+        <div class="card-body"><div id="windowChart2" class="chart"></div></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">按价格带</div><div class="card-sub">0.10 一档</div></div></div>
+        <div class="card-body"><div id="bucketChart" class="chart"></div></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="card-head"><div><div class="card-title">窗口明细</div><div class="card-sub">entry edge / +60s / 到结算（均值）</div></div></div>
+      <div class="card-body flush">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>窗口</th><th class="num">成交</th><th class="num">Entry edge</th><th class="num">+60s</th><th class="num">到结算</th><th class="num">为正</th></tr></thead>
+            <tbody>
+            {% for label, values in by_window.items() %}
+              <tr>
+                <td>{{ label }}</td>
+                <td class="num">{{ values.n|num }}</td>
+                <td class="num {{ 'positive' if (values.entry_edge or 0) > 0 else 'negative' }}">{{ values.entry_edge|cents }}</td>
+                <td class="num {{ 'positive' if (values.markout_60s or 0) > 0 else 'negative' }}">{{ values.markout_60s|cents }}</td>
+                <td class="num {{ 'positive' if (values.markout_end or 0) > 0 else 'negative' }}">{{ values.markout_end|cents }}</td>
+                <td class="num soft">{{ values.positive_end_share|pct }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-pairing" class="tab-panel">
+    <div class="kpi-grid" style="margin-bottom:14px">
+      {{ kpi("双边市场", pair.two_sided|num, (pair.two_sided_ratio|pct) ~ " 的市场同时买 Up/Down") }}
+      {{ kpi("加权配对成本", pair.weighted_pair_cost|price(3), "中位 " ~ (pair.median_pair_cost|price(3))) }}
+      {{ kpi("配对成本 < $1", pair.share_matched_below_one|pct, "按匹配份额加权") }}
+      {{ kpi("锁定利润估算", pair.locked_profit|money(0), "matched × max(0, 1 − pair cost)", "green") }}
+      {{ kpi("结算 PnL", pair.settlement_pnl|money(0), "已解析市场", "green" if (pair.settlement_pnl or 0) > 0 else "red") }}
+      {{ kpi("结算 ROI", pair.settlement_roi|pct, "结算市场成本 " ~ (pair.total_cost|money(0))) }}
+      {{ kpi("盈利市场占比", pair.win_ratio|pct, (pair.win_markets or 0)|num ~ " / " ~ (pair.resolved_markets or 0)|num) }}
+      {{ kpi("未匹配份额", pair.unmatched_shares|compact, "方向性残差") }}
+    </div>
+    <div class="grid grid-2">
+      <div class="card"><div class="card-head"><div><div class="card-title">配对成本分布</div><div class="card-sub">Up 均价 + Down 均价</div></div></div><div class="card-body"><div id="pairHistChart" class="chart"></div></div></div>
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">Top 市场</div><div class="card-sub">按结算 PnL 绝对值</div></div></div>
+        <div class="card-body flush">
+          <div class="table-wrap" style="max-height:360px">
+            <table>
+              <thead><tr><th>市场</th><th class="num">Up/Down shares</th><th class="num">Pair cost</th><th class="num">结算 PnL</th><th>结果</th></tr></thead>
+              <tbody>
+              {% for item in pairs %}
+                <tr>
+                  <td><div class="truncate" style="max-width:220px">{{ item.title or item.slug }}</div><div class="muted tiny mono">{{ item.slug }}</div></td>
+                  <td class="num">{{ item.up_shares|num(0) }} / {{ item.down_shares|num(0) }}</td>
+                  <td class="num">{{ item.pair_cost|price(3) }}</td>
+                  <td class="num {{ 'positive' if (item.settlement_pnl or 0) > 0 else 'negative' }}">{{ item.settlement_pnl|money(2) }}</td>
+                  <td>{% if item.resolved %}<span class="badge badge-{{ 'ok' if item.resolved == 'UP' else 'warn' }}">{{ item.resolved }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-trades" class="tab-panel">
+    <div class="card">
+      <div class="card-head"><div><div class="card-title">最近 200 笔成交</div><div class="card-sub">markout 字段仅在已 enrich 的成交上显示</div></div>
+        <button class="btn btn-sm" type="button" onclick="downloadTrades()">{{ icon("download", 14) }} 导出 CSV</button>
+      </div>
+      <div class="card-body flush">
+        <div class="table-wrap" style="max-height:680px">
+          <table id="tradeTable">
+            <thead><tr><th>时间</th><th>市场</th><th>结果</th><th>方向</th><th class="num">价格</th><th class="num">Size</th><th class="num">USDC</th><th>角色</th><th class="num">Entry edge</th><th class="num">+60s</th><th class="num">结算</th><th>Resolved</th></tr></thead>
+            <tbody>
+            {% for trade in trades %}
+              <tr>
+                <td class="muted nowrap">{{ trade.ts|ts("%m-%d %H:%M:%S") }}</td>
+                <td><div class="truncate mono" style="max-width:180px">{{ trade.slug }}</div></td>
+                <td>{{ trade.outcome }}</td>
+                <td><span class="badge badge-{{ 'maker' if trade.side == 'BUY' else 'taker' }}">{{ trade.side }}</span></td>
+                <td class="num">{{ trade.price|price(3) }}</td>
+                <td class="num">{{ trade.size|num(2) }}</td>
+                <td class="num soft">{{ trade.usdc_size|money(2) }}</td>
+                <td>{% if trade.is_taker %}<span class="badge badge-taker">taker</span>{% else %}<span class="badge badge-maker">maker</span>{% endif %}</td>
+                <td class="num {{ 'positive' if (trade.entry_edge or 0) > 0 else 'negative' }}">{{ trade.entry_edge|cents }}</td>
+                <td class="num {{ 'positive' if (trade.markout_60s or 0) > 0 else 'negative' }}">{{ trade.markout_60s|cents }}</td>
+                <td class="num {{ 'positive' if (trade.markout_end or 0) > 0 else 'negative' }}">{{ trade.markout_end|cents }}</td>
+                <td>{% if trade.resolved %}<span class="badge badge-neutral">{{ trade.resolved }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-evidence" class="tab-panel">
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">分类证据</div><div class="card-sub">规则打分，不是黑箱</div></div></div>
+        <div class="card-body">
+          <div class="evidence">
+            {% set evidence_items = profile.evidence if profile else [] %}
+            {% for item in evidence_items %}
+            <div class="item">
+              <h4>{{ item.label }} <span class="muted tiny">score {{ item.score }}</span></h4>
+              <ul>{% for reason in item.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">任务与重算</div><div class="card-sub">ingest / profile / monitor</div></div></div>
+        <div class="card-body stack">
+          <form method="post" action="/actions/ingest/{{ address }}" class="form">
+            <div class="form-row">
+              <label class="field"><span>天数</span><input class="input" type="number" name="days" value="{{ days if days > 0 else 30 }}" min="1" max="365"></label>
+              <label class="field"><span>最大成交</span><input class="input" type="number" name="max_trades" value="130000" step="1000"></label>
+              <label class="field"><span>Enrich 上限</span><input class="input" type="number" name="enrich_max_trades" value="40000" step="1000"></label>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">{{ icon("download", 14) }} 重新 ingest</button>
+            </div>
+          </form>
+          <div class="row">
+            <form method="post" action="/actions/profile/{{ address }}">
+              <input type="hidden" name="days" value="{{ days if days > 0 else 7 }}">
+              <button class="btn btn-sm" type="submit">{{ icon("spark", 14) }} 重新生成画像</button>
+            </form>
+            <form method="post" action="/actions/monitor">
+              <input type="hidden" name="address" value="{{ address }}">
+              <button class="btn btn-sm" type="submit">{{ icon("pulse", 14) }} 记录监控快照</button>
+            </form>
+          </div>
+          <div class="section-title" style="margin:6px 0 0"><h2 style="font-size:13px">最近任务</h2><div class="line"></div></div>
+          {{ job_table(jobs) }}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if ov and not ov.empty %}
+<script>
+  const C = {{ chart|tojson }};
+  if (C.pnl && C.pnl.labels.length) {
+    LabCharts.line("pnlChart", C.pnl.labels, [
+      { name: "经济 PnL", data: C.pnl.economic },
+      { name: "Maker 返佣", data: C.pnl.rebate }
+    ], { money: true });
+  }
+  if (C.daily && C.daily.labels.length) {
+    LabCharts.bar("volChart", C.daily.labels, [
+      { name: "成交额 $", data: C.daily.volume }
+    ], { money: true });
+  }
+  if (C.markout && C.markout.labels.length) {
+    LabCharts.bar("markoutChart", C.markout.labels, [
+      { name: "均值 ¢", data: C.markout.mean },
+      { name: "中位 ¢", data: C.markout.median }
+    ], { colors: ["#5b8cff", "#8b5cf6"] });
+  }
+  if (C.window && C.window.labels.length) {
+    LabCharts.bar("windowChart", C.window.labels, [
+      { name: "Entry edge ¢", data: C.window.edge },
+      { name: "到结算 ¢", data: C.window.end }
+    ], { colors: ["#5b8cff", "#34d399"] });
+    LabCharts.bar("windowChart2", C.window.labels, [
+      { name: "Entry edge ¢", data: C.window.edge }
+    ], { colors: ["#5b8cff"] });
+  }
+  if (C.bucket && C.bucket.labels.length) {
+    LabCharts.bar("bucketChart", C.bucket.labels, [
+      { name: "Entry edge ¢", data: C.bucket.edge },
+      { name: "到结算 ¢", data: C.bucket.end }
+    ], { colors: ["#5b8cff", "#34d399"] });
+  }
+  if (C.edge_hist && C.edge_hist.labels.length) {
+    LabCharts.bar("edgeHistChart", C.edge_hist.labels, [
+      { name: "成交笔数", data: C.edge_hist.counts }
+    ], { colors: ["#8b5cf6"] });
+  }
+  if (C.pair_hist && C.pair_hist.labels.length) {
+    LabCharts.bar("pairHistChart", C.pair_hist.labels, [
+      { name: "市场数", data: C.pair_hist.counts }
+    ], { colors: ["#22d3ee"] });
+  }
+  if (C.hours && C.hours.labels.length) {
+    LabCharts.bar("hourChart", C.hours.labels, [
+      { name: "成交笔数", data: C.hours.counts }
+    ], { colors: ["#8b5cf6"] });
+  }
+
+  function downloadTrades() {
+    const rows = [...document.querySelectorAll("#tradeTable tr")].map((tr) =>
+      [...tr.querySelectorAll("th,td")].map((cell) => '"' + cell.innerText.replaceAll('"', '""') + '"').join(",")
+    );
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "trades-{{ address }}.csv";
+    link.click();
+  }
+</script>
+{% endif %}
+{% endblock %}

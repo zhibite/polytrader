@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import kpi, status_badge, empty_state %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}Replica {{ run.id }}{% endblock %}
+{% block page_title %}Replica 结果{% endblock %}
+{% block page_subtitle %}{{ run.id }} · {{ run.strategy }}{% endblock %}
+
+{% block content %}
+<div class="detail-head">
+  <div class="detail-title">
+    <div class="row"><h2>{{ run.id }}</h2>{{ status_badge(run.status) }}<span class="chip">{{ run.strategy }}</span></div>
+    <div class="addr">offset {{ summary.params.offset if summary.params else "—" }} · size {{ summary.params.size if summary.params else "—" }} · 窗口 {{ summary.params.allowed_windows|join(", ") if summary.params and summary.params.allowed_windows else "全部" }}</div>
+  </div>
+  <a class="btn btn-sm" href="/replica">{{ icon("arrow-left", 14) }} 返回列表</a>
+</div>
+
+{% if summary.empty %}
+<div class="card"><div class="card-body">{{ empty_state("没有可模拟的市场", summary.message or "先载入 klines 样本，或减少天数/放宽价格带。") }}</div></div>
+{% else %}
+<div class="kpi-grid" style="margin-bottom:14px">
+  {{ kpi("模拟市场", summary.markets|num, "有 samples 的 BTC 5m 市场") }}
+  {{ kpi("模拟成交", summary.trades|num, "每个市场每边最多一笔") }}
+  {{ kpi("PnL", summary.pnl|money(2), "持有到结算", "green" if (summary.pnl or 0) > 0 else "red") }}
+  {{ kpi("ROI", summary.roi|pct, "PnL / 成本") }}
+  {{ kpi("胜率", summary.win_rate|pct, "单笔 PnL > 0") }}
+  {{ kpi("平均单笔", summary.avg_pnl|money(3), "中位 " ~ (summary.median_pnl|money(3))) }}
+  {{ kpi("成本", summary.cost|money(0), "买入成本", "amber") }}
+  {{ kpi("策略", run.strategy, "maker 报价模型") }}
+</div>
+
+<div class="chart-grid" style="margin-bottom:14px">
+  <div class="card"><div class="card-head"><div><div class="card-title">累计 PnL</div><div class="card-sub">按天累加</div></div></div><div class="card-body"><div id="equityChart" class="chart chart-lg"></div></div></div>
+  <div class="card"><div class="card-head"><div><div class="card-title">每日 PnL</div><div class="card-sub">daily</div></div></div><div class="card-body"><div id="dailyChart" class="chart chart-lg"></div></div></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><div><div class="card-title">模拟成交</div><div class="card-sub">最近 500 笔</div></div></div>
+  <div class="card-body flush">
+    <div class="table-wrap" style="max-height:560px">
+      <table>
+        <thead><tr><th>时间</th><th>市场</th><th>方向</th><th class="num">成交价</th><th class="num">Mid</th><th class="num">Size</th><th class="num">Payout</th><th class="num">PnL</th><th>Resolved</th><th class="num">Elapsed</th></tr></thead>
+        <tbody>
+        {% for trade in run.trades %}
+          <tr>
+            <td class="muted nowrap">{{ trade.ts|ts("%m-%d %H:%M:%S") }}</td>
+            <td class="mono truncate" style="max-width:170px">{{ trade.slug }}</td>
+            <td>{{ trade.outcome }}</td>
+            <td class="num">{{ trade.price|price(3) }}</td>
+            <td class="num soft">{{ trade.mid_at_fill|price(3) }}</td>
+            <td class="num">{{ trade.size|num(1) }}</td>
+            <td class="num">{{ trade.payout|money(2) }}</td>
+            <td class="num {{ 'positive' if (trade.pnl or 0) > 0 else 'negative' }}">{{ trade.pnl|money(3) }}</td>
+            <td>{% if trade.resolved %}<span class="badge badge-neutral">{{ trade.resolved }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td class="num soft">{{ trade.elapsed|duration }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if not summary.empty %}
+<script>
+  const C = {{ chart|tojson }};
+  if (C.labels.length) {
+    LabCharts.line("equityChart", C.labels, [{name:"累计 PnL $", data: C.pnl}], {money:true, colors:["#34d399"]});
+    LabCharts.bar("dailyChart", C.labels, [{name:"每日 PnL $", data: C.daily}], {money:true, colors:["#5b8cff"]});
+  }
+</script>
+{% endif %}
+{% endblock %}

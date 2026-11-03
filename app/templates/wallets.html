@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import class_badge, job_table, empty_state %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}钱包画像{% endblock %}
+{% block page_title %}钱包画像{% endblock %}
+{% block page_subtitle %}被跟踪钱包的规模、策略分类与关键指标{% endblock %}
+
+{% block content %}
+<div class="row-between" style="margin-bottom:12px">
+  <div class="muted small">批量归因会串行排队执行，避免并发打爆 Polymarket 速率限制。</div>
+  <form method="post" action="/actions/ingest-all">
+    <input type="hidden" name="days" value="7">
+    <button class="btn btn-sm" type="submit">{{ icon("refresh", 14) }} 批量更新全部（7d）</button>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:14px">
+  <div class="card-body">
+    <form method="post" action="/actions/wallet" class="form">
+      <div class="form-row" style="grid-template-columns: 2fr 1.2fr .6fr auto; align-items:end">
+        <label class="field"><span>钱包地址</span><input class="input mono" name="address" placeholder="0x…" required pattern="0x[a-fA-F0-9]{40}"></label>
+        <label class="field"><span>标签</span><input class="input" name="label" placeholder="例如：BTC 5m maker"></label>
+        <label class="field"><span>天数</span><input class="input" type="number" name="days" value="7" min="1" max="365"></label>
+        <button class="btn btn-primary" type="submit">{{ icon("plus", 14) }} 添加</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><div><div class="card-title">被跟踪钱包</div><div class="card-sub">{{ wallets|length }} 个 · 按成交额排序</div></div>
+    <a class="btn btn-sm" href="/discover">{{ icon("compass", 14) }} 从榜单添加</a>
+  </div>
+  <div class="card-body flush">
+    {% if wallets %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>钱包</th><th>策略</th><th class="num">成交笔数</th><th class="num">成交额</th><th class="num">已实现 PnL</th><th class="num">返佣</th><th class="num">市场数</th><th></th></tr></thead>
+        <tbody>
+        {% for wallet in wallets %}
+          <tr>
+            <td>
+              <a href="/wallets/{{ wallet.address }}" style="font-weight:600;color:var(--text)">{{ wallet.label or wallet.address|short_addr }}</a>
+              <div class="mono muted tiny">{{ wallet.address }}</div>
+            </td>
+            <td>
+              <div class="row" style="gap:5px">
+                {{ class_badge(wallet.classification) }}
+                {% if wallet.cluster_label %}<span class="chip">{{ wallet.cluster_label }}</span>{% endif %}
+              </div>
+              {% if wallet.tags %}
+              <div class="tag-row" style="margin-top:5px">
+                {% for tag in wallet.tags[:3] %}<span class="badge badge-{{ tag|tone }}">{{ tag }}</span>{% endfor %}
+              </div>
+              {% endif %}
+            </td>
+            <td class="num">{{ wallet.fills|num }}</td>
+            <td class="num">{{ wallet.volume_usdc|money(0) }}</td>
+            <td class="num {{ 'positive' if (wallet.realized_pnl or 0) > 0 else 'negative' }}">{{ wallet.realized_pnl|money(0) }}</td>
+            <td class="num amber">{{ wallet.maker_rebate|money(0) }}</td>
+            <td class="num soft">{{ wallet.markets|num }}</td>
+            <td class="right nowrap">
+              <a class="btn btn-sm" href="/wallets/{{ wallet.address }}">Dossier</a>
+              <form method="post" action="/actions/ingest/{{ wallet.address }}" style="display:inline">
+                <input type="hidden" name="days" value="7">
+                <button class="btn btn-sm btn-ghost" type="submit" title="更新数据">{{ icon("refresh", 13) }}</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      {{ empty_state("还没有跟踪钱包", "从排行榜添加，或在发现页手工输入地址。内置目标地址会在首次启动时自动注册。", "/discover", "去发现交易者") }}
+    {% endif %}
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <div class="card-head"><div><div class="card-title">最近任务</div><div class="card-sub">ingest / profile / monitor</div></div></div>
+  <div class="card-body flush">{{ job_table(jobs) }}</div>
+</div>
+{% endblock %}

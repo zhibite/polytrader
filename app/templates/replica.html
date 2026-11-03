@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import status_badge, empty_state %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}Replica 纸盘{% endblock %}
+{% block page_title %}Replica 纸盘{% endblock %}
+{% block page_subtitle %}用推断出的报价偏移、窗口、价格带和库存限制，独立跑一遍策略{% endblock %}
+
+{% block content %}
+<div class="grid grid-2" style="margin-bottom:14px">
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">新建 Replica Run</div><div class="card-sub">历史 1 秒行情上的离线模拟</div></div></div>
+    <div class="card-body">
+      <form method="post" action="/actions/replica" class="form">
+        <div class="form-row">
+          <label class="field"><span>策略</span>
+            <select class="select" name="strategy">
+              <option value="mid_maker">mid_maker · 低于 mid 挂 maker 买单</option>
+              <option value="pair_lock">pair_lock · Up+Down 配对锁定</option>
+            </select>
+          </label>
+          <label class="field"><span>天数</span><input class="input" type="number" name="days" value="3" min="1" max="60"></label>
+          <label class="field"><span>报价偏移</span><input class="input" type="number" name="offset" value="0.005" min="0.001" max="0.2" step="0.001"></label>
+          <label class="field"><span>Size (shares)</span><input class="input" type="number" name="size" value="10" min="1" step="1"></label>
+        </div>
+        <div class="form-row">
+          <label class="field"><span>最低价</span><input class="input" type="number" name="min_price" value="0.30" min="0" max="1" step="0.01"></label>
+          <label class="field"><span>最高价</span><input class="input" type="number" name="max_price" value="0.90" min="0" max="1" step="0.01"></label>
+          <label class="field"><span>Fee bps</span><input class="input" type="number" name="fee_bps" value="0" step="0.1"></label>
+          <label class="field"><span>返佣 bps</span><input class="input" type="number" name="rebate_bps" value="45" step="1"></label>
+        </div>
+        <label class="check"><input type="checkbox" name="both_sides" checked> 同时挂 Up / Down 两边</label>
+        <div class="field">
+          <span>允许的窗口</span>
+          <div class="check-grid">
+            {% for window in ["0-30s", "30-60s", "1-2m", "2-3m", "3-4m", "4-5m"] %}
+            <label class="check"><input type="checkbox" name="allowed_windows" value="{{ window }}" checked> {{ window }}</label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">{{ icon("play", 14) }} 开始模拟</button>
+          <span class="muted tiny">依赖 samples 表；样本不足时先跑目标 ingest 或挂载 kline 数据集。</span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">两种策略</div><div class="card-sub">当前目标更像 mid_maker</div></div></div>
+    <div class="card-body">
+      <div class="verdict">
+        <strong>mid_maker</strong>：在每个价格带里，以 mid − offset 挂买单；下一根 1 秒价格穿过报价即模拟成交；持有到结算。
+        目标账户的 entry edge 为正、短期 markout 略负、结算 markout 为正，正是这个结构的特征。
+      </div>
+      <div class="verdict" style="margin-top:10px;border-left-color:var(--brand-2);background:rgba(139,92,246,.06)">
+        <strong>pair_lock</strong>：当 Up + Down 的价格之和低于 1 − min_edge 时同时买入两边，持有到结算。
+        目标账户 91% 市场双边买入，但加权配对成本 1.046，说明 pure pair-lock 只解释一部分。
+      </div>
+      <div class="stat-line" style="margin-top:12px"><span class="k">成交模型</span><span class="v">next-tick 穿越</span></div>
+      <div class="stat-line"><span class="k">持仓</span><span class="v">持有到结算</span></div>
+      <div class="stat-line"><span class="k">未建模</span><span class="v">队列位置 / 撤单 / 腿风险</span></div>
+      <div class="alert alert-warn" style="margin-top:12px">
+        这是离线近似：用 1 秒 mid 序列代替真实盘口，成交率通常偏乐观。结论用于比较策略结构，不是收益承诺。
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><div><div class="card-title">Replica Runs</div><div class="card-sub">{{ runs|length }} 个任务</div></div></div>
+  <div class="card-body flush">
+    {% if runs %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Run</th><th>策略</th><th>状态</th><th class="num">市场</th><th class="num">成交</th><th class="num">PnL</th><th class="num">ROI</th><th class="num">胜率</th><th>创建</th><th></th></tr></thead>
+        <tbody>
+        {% for run in runs %}
+          {% set s = run.summary %}
+          <tr>
+            <td class="mono small">{{ run.id }}</td>
+            <td>{{ run.strategy }}</td>
+            <td>{{ status_badge(run.status) }}</td>
+            <td class="num">{{ s.markets|num if s.markets is defined else "—" }}</td>
+            <td class="num">{{ s.trades|num if s.trades is defined else "—" }}</td>
+            <td class="num {{ 'positive' if (s.pnl or 0) > 0 else 'negative' }}">{{ s.pnl|money(2) if s.pnl is defined else "—" }}</td>
+            <td class="num">{{ s.roi|pct if s.roi is defined else "—" }}</td>
+            <td class="num">{{ s.win_rate|pct if s.win_rate is defined else "—" }}</td>
+            <td class="muted small">{{ run.created_at|ts("%m-%d %H:%M") }}</td>
+            <td class="right"><a class="btn btn-sm" href="/replica/{{ run.id }}">详情</a></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      {{ empty_state("还没有 Replica run", "配置参数后点击「开始模拟」。") }}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

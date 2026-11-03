@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+data/*.sqlite
+data/*.sqlite-*
+data/snapshots/
+.vendorpkg/
+.next/
+node_modules/
+.pytest_cache/
+.ruff_cache/
+*.log
+.DS_Store

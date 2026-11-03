@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import status_badge, empty_state %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}Shadow 复刻{% endblock %}
+{% block page_title %}Shadow 复刻{% endblock %}
+{% block page_subtitle %}按目标的成交价/方向做纸面复刻，检验“照抄成交”是否赚钱{% endblock %}
+
+{% block content %}
+<div class="grid grid-2" style="margin-bottom:14px">
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">新建 Shadow Run</div><div class="card-sub">复制目标的 BUY 成交并持有到结算</div></div></div>
+    <div class="card-body">
+      <form method="post" action="/actions/shadow" class="form">
+        <div class="form-row">
+          <label class="field" style="grid-column: span 2"><span>目标钱包</span>
+            <select class="select" name="address">
+              {% for wallet in wallets %}
+              <option value="{{ wallet.address }}">{{ wallet.label or wallet.address|short_addr }} · {{ wallet.address|short_addr }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="field"><span>天数</span><input class="input" type="number" name="days" value="7" min="1" max="365"></label>
+          <label class="field"><span>延迟 (秒)</span><input class="input" type="number" name="delay_s" value="0" min="0" step="1" title="0 = 同价复刻；>0 = 用 t+delay 的 mid 作为复制价"></label>
+          <label class="field"><span>Size 倍数</span><input class="input" type="number" name="size_scale" value="1" min="0.01" step="0.1"></label>
+        </div>
+        <label class="check"><input type="checkbox" name="copy_sells"> 同时复制 SELL（默认只复制 BUY 并持有到结算）</label>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">{{ icon("play", 14) }} 开始 Shadow</button>
+          <span class="muted tiny">delay=0 是最乐观假设：假设我们的挂单能在目标同价成交。</span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">怎么读 Shadow</div><div class="card-sub">因果拆解的第一层</div></div></div>
+    <div class="card-body">
+      <div class="stat-line"><span class="k">同价复刻 PnL</span><span class="v">目标成交价 + 持有到结算</span></div>
+      <div class="stat-line"><span class="k">vs 目标 PnL</span><span class="v">同一批成交的目标实现收益</span></div>
+      <div class="stat-line"><span class="k">延迟敏感度</span><span class="v">delay 1/5/10/30s 各跑一次</span></div>
+      <div class="stat-line"><span class="k">结论</span><span class="v">钱来自选时、成交价、还是返佣</span></div>
+      <div class="alert alert-info" style="margin-top:12px">
+        Shadow 只验证“成交价 + 结算”这一段。它无法检验目标如何选市场、如何挂单/撤单；
+        那部分是 Replica 的职责。
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><div><div class="card-title">Shadow Runs</div><div class="card-sub">{{ runs|length }} 个任务</div></div></div>
+  <div class="card-body flush">
+    {% if runs %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Run</th><th>目标</th><th>状态</th><th class="num">Copied</th><th class="num">PnL</th><th class="num">ROI</th><th class="num">胜率</th><th class="num">Delay</th><th>创建</th><th></th></tr></thead>
+        <tbody>
+        {% for run in runs %}
+          {% set s = run.summary %}
+          <tr>
+            <td class="mono small">{{ run.id }}</td>
+            <td class="mono">{{ run.address|short_addr }}</td>
+            <td>{{ status_badge(run.status) }}</td>
+            <td class="num">{{ s.copied|num if s.copied is defined else "—" }}</td>
+            <td class="num {{ 'positive' if (s.pnl or 0) > 0 else 'negative' }}">{{ s.pnl|money(2) if s.pnl is defined else "—" }}</td>
+            <td class="num">{{ s.roi|pct if s.roi is defined else "—" }}</td>
+            <td class="num">{{ s.win_rate|pct if s.win_rate is defined else "—" }}</td>
+            <td class="num">{{ s.delay_s|num(0) if s.delay_s is defined else "—" }}s</td>
+            <td class="muted small">{{ run.created_at|ts("%m-%d %H:%M") }}</td>
+            <td class="right"><a class="btn btn-sm" href="/shadow/{{ run.id }}">详情</a></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      {{ empty_state("还没有 Shadow run", "选择目标钱包并点击「开始 Shadow」。") }}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
