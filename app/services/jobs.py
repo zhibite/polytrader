@@ -303,7 +303,9 @@ def run_job(job: dict[str, Any]) -> None:
                 message=(
                     f"Pipeline 完成：fills={((result.get('ingest') or {}).get('fills') or 0):,}, "
                     f"best val ROI={(best.get('val_roi') or 0) * 100:.2f}%, "
-                    f"paper={result.get('paper_strategy_id') or '—'}; "
+                    f"paper={result.get('paper_strategy_id') or '—'} "
+                    f"({result.get('paper_action') or '—'}: "
+                    f"{((result.get('paper_decision') or {}).get('reason') or '')[:60]}); "
                     f"run=/lab/{best.get('run_id') or '—'}"
                 ),
                 finished_at=now_ts(),

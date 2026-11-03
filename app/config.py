@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     paper_enabled: bool = True
     paper_tick_seconds: float = 10.0
     paper_starting_balance: float = 500.0
+    paper_min_retention_hours: float = 24.0
+    paper_min_settled_trades: int = 100
+    paper_promotion_margin: float = 0.01
 
     demo_seed: bool = False
 

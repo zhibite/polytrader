@@ -12,7 +12,7 @@ from typing import Any, Callable
 from ..config import get_settings
 from ..db import connect, now_ts
 from .ingest import ingest_wallet
-from .paper import activate_paper_strategy
+from .paper import activate_paper_strategy, promotion_decision
 from .sweep import run_auto_sweep, save_strategy
 
 ProgressFn = Callable[[int, int, str], None]
@@ -87,6 +87,8 @@ def run_pipeline(
     best = sweep_summary.get("best") or {}
     saved_strategy_id = None
     paper_strategy_id = None
+    paper_action = None
+    decision: dict[str, Any] | None = None
     if best and best.get("params") and (best.get("score") or -999) > -900:
         name = f"auto-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
         metrics = {
@@ -119,14 +121,31 @@ def run_pipeline(
                 "max_cost_per_market": max_cost,
                 "max_open_cost": max_open,
                 "starting_balance": starting_balance,
+                "source_val_roi": best.get("val_roi"),
             }
         )
-        paper_strategy_id = activate_paper_strategy(
-            f"{name} · paper",
-            paper_params,
-            source_run=best.get("run_id"),
-            starting_balance=starting_balance,
-        )
+        conn = connect()
+        try:
+            decision = promotion_decision(
+                conn,
+                best.get("val_roi"),
+                min_retention_hours=settings.paper_min_retention_hours,
+                min_settled_trades=settings.paper_min_settled_trades,
+                margin=settings.paper_promotion_margin,
+            )
+        finally:
+            conn.close()
+        if decision.get("replace"):
+            paper_strategy_id = activate_paper_strategy(
+                f"{name} · paper",
+                paper_params,
+                source_run=best.get("run_id"),
+                starting_balance=starting_balance,
+            )
+            paper_action = "activated"
+        else:
+            paper_strategy_id = decision.get("active_id")
+            paper_action = "kept"
     if progress:
         progress(100, 100, "pipeline complete")
     return {
@@ -141,5 +160,7 @@ def run_pipeline(
         },
         "saved_strategy_id": saved_strategy_id,
         "paper_strategy_id": paper_strategy_id,
+        "paper_action": paper_action if best and best.get("params") else None,
+        "paper_decision": decision if best and best.get("params") else None,
         "completed_at": now_ts(),
     }

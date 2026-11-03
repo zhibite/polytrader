@@ -403,6 +403,99 @@ class PaperWorker:
             self._stop.wait(max(2.0, self.settings.paper_tick_seconds))
 
 
+def active_strategy(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT * FROM paper_strategies WHERE active=1 ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def settled_count(conn: sqlite3.Connection, strategy_id: str) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM paper_positions WHERE strategy_id=? AND status='SETTLED'",
+        (strategy_id,),
+    ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def source_val_roi(conn: sqlite3.Connection, strategy: dict[str, Any]) -> float | None:
+    params = _strategy_params(strategy)
+    value = params.get("source_val_roi")
+    if isinstance(value, (int, float)):
+        return float(value)
+    source_run = strategy.get("source_run")
+    if source_run:
+        row = conn.execute(
+            "SELECT val_roi FROM sweep_results WHERE run_id=? ORDER BY rank ASC LIMIT 1",
+            (source_run,),
+        ).fetchone()
+        if row and row["val_roi"] is not None:
+            return float(row["val_roi"])
+    return None
+
+
+def promotion_decision(
+    conn: sqlite3.Connection,
+    candidate_val_roi: float | None,
+    min_retention_hours: float = 24.0,
+    min_settled_trades: int = 100,
+    margin: float = 0.01,
+) -> dict[str, Any]:
+    """Decide whether a new paper strategy may replace the active one.
+
+    A candidate is eligible only after the active strategy has run for at
+    least N hours OR settled at least M positions. It must then beat the
+    active strategy's source validation ROI by ``margin``.
+    """
+    active = active_strategy(conn)
+    if not active:
+        return {"replace": True, "reason": "no active paper strategy", "active_id": None}
+    age_hours = max(0.0, (now_ts() - int(active["created_at"])) / 3600.0)
+    settled = settled_count(conn, active["id"])
+    active_roi = source_val_roi(conn, active) or 0.0
+    if age_hours < min_retention_hours and settled < min_settled_trades:
+        return {
+            "replace": False,
+            "reason": f"retention: {age_hours:.1f}h / {settled} settled",
+            "active_id": active["id"],
+            "age_hours": age_hours,
+            "settled": settled,
+            "active_val_roi": active_roi,
+        }
+    if candidate_val_roi is None:
+        return {
+            "replace": False,
+            "reason": "candidate has no validation ROI",
+            "active_id": active["id"],
+            "age_hours": age_hours,
+            "settled": settled,
+            "active_val_roi": active_roi,
+        }
+    if float(candidate_val_roi) < active_roi + margin:
+        return {
+            "replace": False,
+            "reason": (
+                f"candidate {float(candidate_val_roi) * 100:.2f}% < "
+                f"active {active_roi * 100:.2f}% + {margin * 100:.1f}%"
+            ),
+            "active_id": active["id"],
+            "age_hours": age_hours,
+            "settled": settled,
+            "active_val_roi": active_roi,
+        }
+    return {
+        "replace": True,
+        "reason": (
+            f"candidate {float(candidate_val_roi) * 100:.2f}% > "
+            f"active {active_roi * 100:.2f}% + {margin * 100:.1f}%"
+        ),
+        "active_id": active["id"],
+        "age_hours": age_hours,
+        "settled": settled,
+        "active_val_roi": active_roi,
+    }
+
+
 def list_strategies(conn: sqlite3.Connection, limit: int = 20) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT * FROM paper_strategies ORDER BY created_at DESC LIMIT ?", (limit,)

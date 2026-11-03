@@ -343,6 +343,39 @@ def test_paper_engine_opens_and_settles(db):
     assert position["settlement_pnl"] is not None
 
 
+def test_paper_promotion_rules(db):
+    from app.services.paper import activate_paper_strategy, promotion_decision
+
+    no_active = promotion_decision(db, 0.05)
+    assert no_active["replace"] is True
+
+    strategy_id = activate_paper_strategy(
+        "retention-test",
+        {"source_val_roi": 0.02},
+        starting_balance=500,
+    )
+    recent = promotion_decision(
+        db, 0.05, min_retention_hours=24, min_settled_trades=100, margin=0.01
+    )
+    assert recent["replace"] is False
+    assert "retention" in recent["reason"]
+
+    db.execute(
+        "UPDATE paper_strategies SET created_at=? WHERE id=?",
+        (now_ts() - 25 * 3600, strategy_id),
+    )
+    db.commit()
+    below_margin = promotion_decision(
+        db, 0.025, min_retention_hours=24, min_settled_trades=100, margin=0.01
+    )
+    assert below_margin["replace"] is False
+
+    above_margin = promotion_decision(
+        db, 0.035, min_retention_hours=24, min_settled_trades=100, margin=0.01
+    )
+    assert above_margin["replace"] is True
+
+
 def test_replica_mid_maker(db):
     slug, condition, start = _seed_market(db)
     result = run_replica(
