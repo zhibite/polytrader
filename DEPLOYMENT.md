@@ -9,7 +9,7 @@
 2. Coolify → **New Resource** → **Application** → 选择仓库。
 3. Build Pack 选择 **Dockerfile**（仓库根目录已有 `Dockerfile`）。
 4. 端口设为 `8021`（与 Dockerfile 的 `PORT` / `EXPOSE` 一致）。
-   应用默认同时监听 `8000` 和 `8021`（`LAB_BIND_PORTS`），所以 Coolify 的 Ports Exposes 填 8000 或 8021 都能访问；想只开一个端口就设置 `LAB_BIND_PORTS=8021`。
+   应用默认监听 8021（主）和 8000（兼容兜底，`LAB_BIND_PORTS=8021,8000`）。Coolify 的 Ports Exposes 填 8021 或 8000 都能访问；想严格只监听 8021，设置 `LAB_BIND_PORTS=8021`。
 5. **Persistent Storage**：
    - Volume mount path：`/app/data`
    - 建议使用 named volume 或宿主机目录，例如 `/data/polytrader-lab:/app/data`

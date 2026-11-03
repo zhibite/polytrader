@@ -5,8 +5,8 @@ Coolify's Traefik route and the injected ``PORT`` env var can disagree
 robust regardless of which side of that config is stale, bind both ports in
 one uvicorn process by default.
 
-Override with ``LAB_BIND_PORTS=8021`` (or any comma-separated list) if a
-single port is preferred.
+Default order is 8021 first, then 8000 as a compatibility fallback. Set
+``LAB_BIND_PORTS=8021`` to listen on exactly one port.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def _bind(port: int) -> socket.socket:
 
 
 def main() -> None:
-    raw = os.environ.get("LAB_BIND_PORTS", "8000,8021")
+    raw = os.environ.get("LAB_BIND_PORTS", "8021,8000")
     ports: list[int] = []
     for part in raw.split(","):
         part = part.strip()
