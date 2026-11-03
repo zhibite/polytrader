@@ -256,6 +256,34 @@ def test_sweep_runs_and_stores_results(db):
     assert len(rows) == 1
 
 
+def test_auto_sweep_refines_rounds(db):
+    from app.services.sweep import run_auto_sweep
+
+    _seed_market(db)
+    result = run_auto_sweep(
+        "auto-test",
+        {
+            "days": 1,
+            "offsets": [0.0001],
+            "window_sets": ["all"],
+            "bands": [[0.05, 0.95]],
+            "sizes": [5],
+            "rebates": [0],
+            "fee_bps": 0,
+            "max_cost_per_market": 50,
+            "max_open_cost": 500,
+            "min_val_fills": 1,
+            "auto_rounds": 2,
+            "top_k": 2,
+        },
+    )
+    assert result["summary"]["rounds"] >= 1
+    rows = db.execute(
+        "SELECT id FROM sweep_runs WHERE id LIKE 'auto-test-r%' ORDER BY id"
+    ).fetchall()
+    assert len(rows) >= 1
+
+
 def test_replica_mid_maker(db):
     slug, condition, start = _seed_market(db)
     result = run_replica(

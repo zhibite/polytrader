@@ -451,6 +451,134 @@ def run_sweep(
         raise
 
 
+def refine_params(
+    params: dict[str, Any],
+    results: list[dict[str, Any]],
+    top_k: int = 8,
+) -> dict[str, Any]:
+    """Narrow the grid around the best validation parameter sets.
+
+    This is a local refinement, not a new strategy family. It intentionally
+    keeps the same train/validation split, so round 2/3 numbers become
+    progressively more in-sample; validate the finalists forward.
+    """
+    if not results:
+        return dict(params)
+    eligible = [
+        item
+        for item in results
+        if item.get("val_fills") is not None
+        and item["val_fills"] >= int(params.get("min_val_fills", 10))
+        and item.get("val_roi") is not None
+        and item.get("score", -999) > -900
+    ]
+    top = (eligible or results)[: max(1, int(top_k))]
+    offsets: set[float] = set()
+    window_sets: list[str] = []
+    bands: list[tuple[float, float]] = []
+    sizes: set[float] = set()
+    rebates: set[float] = set()
+    for item in top:
+        combo = item.get("params") or {}
+        try:
+            base = float(combo.get("offset", 0))
+        except (TypeError, ValueError):
+            base = 0
+        for delta in (-0.002, -0.001, 0.0, 0.001, 0.002):
+            value = round(base + delta, 4)
+            if value > 0:
+                offsets.add(value)
+        window = combo.get("window_set")
+        if window in WINDOW_SETS and window not in window_sets:
+            window_sets.append(window)
+        try:
+            low, high = float(combo["band"][0]), float(combo["band"][1])
+        except (KeyError, TypeError, ValueError):
+            continue
+        candidates = [(low, high)]
+        if high - low >= 0.10:
+            candidates.extend([(round(low + 0.05, 2), high), (low, round(high - 0.05, 2))])
+        if low >= 0.05:
+            candidates.append((round(low - 0.05, 2), high))
+        for band in candidates:
+            if 0 < band[0] < band[1] <= 1 and band not in bands:
+                bands.append(band)
+        try:
+            size = float(combo.get("size", 10))
+        except (TypeError, ValueError):
+            size = 10.0
+        sizes.update({size, round(size * 2, 2)})
+        try:
+            rebates.add(float(combo.get("rebate_bps", 0)))
+        except (TypeError, ValueError):
+            rebates.add(0.0)
+    refined = dict(params)
+    refined["offsets"] = sorted(offsets)[:4] or params["offsets"]
+    refined["window_sets"] = (window_sets[:2] or params["window_sets"])
+    refined["bands"] = bands[:3] or params["bands"]
+    refined["sizes"] = sorted(sizes)[:2] or params["sizes"]
+    refined["rebates"] = sorted(rebates | {0.0})[:3] or params["rebates"]
+    return refined
+
+
+def run_auto_sweep(
+    job_id: str,
+    params: dict[str, Any] | None = None,
+    progress: ProgressFn | None = None,
+) -> dict[str, Any]:
+    params = dict(params or {})
+    rounds = max(1, int(params.get("auto_rounds", 3)))
+    top_k = max(1, int(params.get("top_k", 8)))
+    base = {key: value for key, value in params.items() if key not in ("auto_rounds", "top_k")}
+    current = dict(base)
+    history: list[dict[str, Any]] = []
+    overall_best: dict[str, Any] | None = None
+    for round_number in range(1, rounds + 1):
+        run_id = f"{job_id}-r{round_number}"
+
+        def round_progress(done: int, total: int, message: str, _round: int = round_number) -> None:
+            if progress:
+                percent = int(((_round - 1) + max(0, min(100, done)) / 100.0) / rounds * 100)
+                progress(percent, 100, f"round {_round}/{rounds}: {message}")
+
+        result = run_sweep(run_id=run_id, params=current, progress=round_progress)
+        summary = result.get("summary") or {}
+        best = summary.get("best") or {}
+        history.append(
+            {
+                "round": round_number,
+                "run_id": run_id,
+                "combos": summary.get("combos"),
+                "best": best,
+            }
+        )
+        if best and (
+            overall_best is None
+            or (best.get("score") or -999) > (overall_best.get("score") or -999)
+            or (
+                (best.get("score") or -999) == (overall_best.get("score") or -999)
+                and (best.get("val_pnl") or 0) > (overall_best.get("val_pnl") or 0)
+            )
+        ):
+            overall_best = {**best, "run_id": run_id, "round": round_number}
+        if round_number >= rounds or summary.get("empty") or not best:
+            break
+        next_params = refine_params(current, result.get("results") or [], top_k)
+        if next_params == current:
+            break
+        current = next_params
+    summary = {
+        "rounds": len(history),
+        "history": history,
+        "best": overall_best,
+        "base_params": base,
+        "generated_at": now_ts(),
+    }
+    if progress:
+        progress(100, 100, "auto sweep complete")
+    return {"summary": summary}
+
+
 def _store_results(conn: sqlite3.Connection, run_id: str, results: list[dict[str, Any]]) -> None:
     conn.execute("DELETE FROM sweep_results WHERE run_id=?", (run_id,))
     conn.executemany(

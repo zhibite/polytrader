@@ -20,6 +20,8 @@
         <label class="field"><span>单市场最大成本 $</span><input class="input" type="number" name="max_cost_per_market" value="25" min="1" step="1"></label>
         <label class="field"><span>总敞口上限 $</span><input class="input" type="number" name="max_open_cost" value="500" min="1" step="10"></label>
         <label class="field"><span>最少验证成交</span><input class="input" type="number" name="min_val_fills" value="10" min="1" step="1"></label>
+        <label class="field"><span>自动轮次</span><input class="input" type="number" name="auto_rounds" value="3" min="1" max="5" step="1" title="1 = 只跑粗网格；>1 = 自动取 Top K 缩小网格继续跑"></label>
+        <label class="field"><span>每轮 Top K</span><input class="input" type="number" name="top_k" value="8" min="1" max="30" step="1"></label>
       </div>
 
       <div class="grid grid-2" style="gap:14px">
@@ -61,7 +63,7 @@
 
       <div class="form-actions">
         <button class="btn btn-primary" type="submit">{{ icon("play", 14) }} 开始扫描</button>
-        <span class="muted tiny">默认 240 组；结果按 validation ROI 排序，返回 Top 60。</span>
+        <span class="muted tiny">默认第 1 轮 240 组；自动取 Top K，围绕最优 offset/窗口/价格带生成第 2、3 轮细网格。结果按 validation ROI 排序，返回 Top 60。</span>
       </div>
     </form>
   </div>

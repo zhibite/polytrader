@@ -158,6 +158,7 @@ docker compose up -d --build
 - 默认网格：offset `0.002/0.003/0.005/0.008`、5 组窗口、价格带 `0.30-0.90` / `0.50-0.90`、size `5/10/20`、返佣 `0/45bps`
 - 风控约束：单市场最大成本 `$25`、总敞口 `$500`
 - 按天切分 train / validation，按 validation ROI 排名
+- 自动轮次（默认 3）：第 1 轮粗网格，取 Top K 后围绕最优 offset/窗口/价格带/size/rebate 生成第 2、3 轮细网格
 - Top 参数可保存到 `strategies` 表，作为后续前向纸盘/实盘候选
 
 注意：回测使用 1 秒 last price + next-tick 穿越，未模拟队列位置、撤单延迟和腿风险；

@@ -120,6 +120,8 @@ def create_sweep(
     max_cost_per_market: Annotated[float, Form()] = 25.0,
     max_open_cost: Annotated[float, Form()] = 500.0,
     min_val_fills: Annotated[int, Form()] = 10,
+    auto_rounds: Annotated[int, Form()] = 3,
+    top_k: Annotated[int, Form()] = 8,
 ):
     def _floats(values: list[str] | None, default: list[float]) -> list[float]:
         if not values:
@@ -150,6 +152,8 @@ def create_sweep(
         "max_cost_per_market": max_cost_per_market,
         "max_open_cost": max_open_cost,
         "min_val_fills": min_val_fills,
+        "auto_rounds": max(1, auto_rounds),
+        "top_k": max(1, top_k),
     }
     job = create_job("sweep", None, params)
     return _redirect(request, "/lab", job)

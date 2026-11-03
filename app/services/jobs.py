@@ -287,6 +287,27 @@ def run_job(job: dict[str, Any]) -> None:
             )
             return
         if kind == "sweep":
+            auto_rounds = int(params.get("auto_rounds", 1) or 1)
+            if auto_rounds > 1:
+                from .sweep import run_auto_sweep
+
+                result = run_auto_sweep(job_id=job_id, params=params, progress=_progress_callback(job_id))
+                summary = result.get("summary") or {}
+                best = summary.get("best") or {}
+                best_run = best.get("run_id") or job_id
+                update_job(
+                    job_id,
+                    status="DONE",
+                    progress=100,
+                    message=(
+                        f"AutoSweep 完成：rounds={summary.get('rounds', 0)}, "
+                        f"best round={best.get('round', '—')}, "
+                        f"val ROI={(best.get('val_roi') or 0) * 100:.2f}%, "
+                        f"val PnL=${best.get('val_pnl', 0):,.2f}; run=/lab/{best_run}"
+                    ),
+                    finished_at=now_ts(),
+                )
+                return
             from .sweep import run_sweep
 
             result = run_sweep(run_id=job_id, params=params, progress=_progress_callback(job_id))
