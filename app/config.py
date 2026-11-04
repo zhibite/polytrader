@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     paper_min_retention_hours: float = 24.0
     paper_min_settled_trades: int = 100
     paper_promotion_margin: float = 0.01
+    paper_max_drawdown_pct: float = 0.10
 
     demo_seed: bool = False
 

@@ -18,6 +18,7 @@
     <div class="row">
       <h2>{{ strategy.name }}</h2>
       {% if strategy.active %}<span class="badge badge-ok">active</span>{% else %}<span class="badge badge-neutral">inactive</span>{% endif %}
+      {% if strategy.stop_reason %}<span class="badge badge-bad">{{ strategy.stop_reason }}</span>{% endif %}
     </div>
     <div class="addr mono">{{ strategy.id }} · source {{ strategy.source_run or "—" }}</div>
   </div>

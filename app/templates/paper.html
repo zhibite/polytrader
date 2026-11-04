@@ -29,7 +29,11 @@
         {% for item in strategies %}
           <tr>
             <td><strong>{{ item.name }}</strong><div class="mono muted tiny">{{ item.id }}</div></td>
-            <td>{% if item.active %}<span class="badge badge-ok">active</span>{% else %}<span class="badge badge-neutral">inactive</span>{% endif %}</td>
+            <td>
+              {% if item.active %}<span class="badge badge-ok">active</span>
+              {% elif item.stop_reason %}<span class="badge badge-bad">stopped</span><div class="muted tiny">{{ item.stop_reason }}</div>
+              {% else %}<span class="badge badge-neutral">inactive</span>{% endif %}
+            </td>
             <td class="small">
               offset {{ item.params.offset }} · {{ item.params.window_set or "" }} · {{ item.params.band }} · size {{ item.params.size }} · {{ item.params.rebate_bps }}bps
             </td>

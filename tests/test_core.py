@@ -348,6 +348,9 @@ def test_paper_promotion_rules(db):
 
     no_active = promotion_decision(db, 0.05)
     assert no_active["replace"] is True
+    flat = promotion_decision(db, 0.0)
+    assert flat["replace"] is False
+    assert "staying flat" in flat["reason"]
 
     strategy_id = activate_paper_strategy(
         "retention-test",
@@ -359,6 +362,12 @@ def test_paper_promotion_rules(db):
     )
     assert recent["replace"] is False
     assert "retention" in recent["reason"]
+
+    negative = promotion_decision(
+        db, -0.01, min_retention_hours=24, min_settled_trades=100, margin=0.01
+    )
+    assert negative["replace"] is False
+    assert "candidate val ROI <= 0" in negative["reason"]
 
     db.execute(
         "UPDATE paper_strategies SET created_at=? WHERE id=?",
@@ -374,6 +383,31 @@ def test_paper_promotion_rules(db):
         db, 0.035, min_retention_hours=24, min_settled_trades=100, margin=0.01
     )
     assert above_margin["replace"] is True
+
+
+def test_paper_drawdown_stop(db):
+    from app.services.paper import activate_paper_strategy, paper_tick
+
+    strategy_id = activate_paper_strategy(
+        "drawdown-test",
+        {
+            "offset": 0.005,
+            "windows": ["0-30s"],
+            "band": [0.3, 0.9],
+            "size": 5,
+            "max_cost_per_market": 25,
+            "max_open_cost": 500,
+            "fee_bps": 0,
+            "rebate_bps": 0,
+        },
+        starting_balance=500,
+    )
+    db.execute("UPDATE paper_strategies SET cash=440 WHERE id=?", (strategy_id,))
+    db.commit()
+    paper_tick()
+    row = db.execute("SELECT active, stop_reason FROM paper_strategies WHERE id=?", (strategy_id,)).fetchone()
+    assert row["active"] == 0
+    assert "drawdown" in (row["stop_reason"] or "")
 
 
 def test_replica_mid_maker(db):

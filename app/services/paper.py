@@ -183,7 +183,7 @@ def _settle(conn: sqlite3.Connection, now: int) -> None:
         )
 
 
-def _mark_equity(conn: sqlite3.Connection, strategy: dict[str, Any], now: int) -> None:
+def _valuation(conn: sqlite3.Connection, strategy: dict[str, Any]) -> tuple[float, float]:
     positions = conn.execute(
         "SELECT * FROM paper_positions WHERE strategy_id=? AND status='OPEN'",
         (strategy["id"],),
@@ -201,6 +201,26 @@ def _mark_equity(conn: sqlite3.Connection, strategy: dict[str, Any], now: int) -
         price = float(book["mid"]) if book and book["mid"] is not None else float(position["avg_price"])
         positions_value += price * float(position["shares"])
         cost += float(position["cost"])
+    return positions_value, cost
+
+
+def _current_equity(conn: sqlite3.Connection, strategy: dict[str, Any]) -> float:
+    positions_value, _ = _valuation(conn, strategy)
+    return float(strategy["cash"]) + positions_value
+
+
+def _drawdown_breached(strategy: dict[str, Any], equity: float, max_drawdown: float) -> str | None:
+    starting = float(strategy.get("starting_balance") or 0)
+    if starting <= 0 or max_drawdown <= 0:
+        return None
+    drawdown = (starting - equity) / starting
+    if drawdown >= max_drawdown:
+        return f"drawdown {drawdown:.1%} >= {max_drawdown:.1%}"
+    return None
+
+
+def _mark_equity(conn: sqlite3.Connection, strategy: dict[str, Any], now: int) -> None:
+    positions_value, cost = _valuation(conn, strategy)
     unrealized = positions_value - cost
     cash = float(strategy["cash"])
     equity = cash + positions_value
@@ -231,7 +251,17 @@ def paper_tick() -> dict[str, Any]:
                 "SELECT * FROM paper_strategies WHERE active=1 ORDER BY created_at DESC"
             ).fetchall()
         ]
+        settings = get_settings()
+        max_drawdown = float(settings.paper_max_drawdown_pct)
         for strategy in strategies:
+            equity = _current_equity(conn, strategy)
+            stop = _drawdown_breached(strategy, equity, max_drawdown)
+            if stop:
+                conn.execute(
+                    "UPDATE paper_strategies SET active=0, stop_reason=?, updated_at=? WHERE id=?",
+                    (stop, now, strategy["id"]),
+                )
+                continue
             params = _strategy_params(strategy)
             market = _current_market(conn, params)
             if not market:
@@ -366,6 +396,13 @@ def paper_tick() -> dict[str, Any]:
         ]
         for strategy in strategies:
             _mark_equity(conn, strategy, now)
+            equity = _current_equity(conn, strategy)
+            stop = _drawdown_breached(strategy, equity, max_drawdown)
+            if stop and int(strategy.get("active") or 0):
+                conn.execute(
+                    "UPDATE paper_strategies SET active=0, stop_reason=?, updated_at=? WHERE id=?",
+                    (stop, now, strategy["id"]),
+                )
         conn.commit()
     finally:
         conn.close()
@@ -449,7 +486,20 @@ def promotion_decision(
     """
     active = active_strategy(conn)
     if not active:
+        if candidate_val_roi is None or float(candidate_val_roi) <= 0:
+            return {
+                "replace": False,
+                "reason": "candidate val ROI <= 0; staying flat",
+                "active_id": None,
+            }
         return {"replace": True, "reason": "no active paper strategy", "active_id": None}
+    if candidate_val_roi is None or float(candidate_val_roi) <= 0:
+        return {
+            "replace": False,
+            "reason": "candidate val ROI <= 0",
+            "active_id": active["id"],
+            "active_val_roi": source_val_roi(conn, active) or 0.0,
+        }
     age_hours = max(0.0, (now_ts() - int(active["created_at"])) / 3600.0)
     settled = settled_count(conn, active["id"])
     active_roi = source_val_roi(conn, active) or 0.0

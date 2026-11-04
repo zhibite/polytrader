@@ -405,6 +405,7 @@ CREATE TABLE IF NOT EXISTS paper_strategies (
     fees_paid REAL NOT NULL DEFAULT 0,
     last_tick_at INTEGER,
     last_error TEXT,
+    stop_reason TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -553,6 +554,12 @@ def init_db() -> None:
     settings.ensure_dirs()
     with db_session() as conn:
         conn.executescript(SCHEMA)
+        # Lightweight migration for databases created before a column existed.
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(paper_strategies)").fetchall()
+        }
+        if "stop_reason" not in columns:
+            conn.execute("ALTER TABLE paper_strategies ADD COLUMN stop_reason TEXT")
         conn.execute(
             "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', '1')"
         )
