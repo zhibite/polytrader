@@ -406,6 +406,8 @@ CREATE TABLE IF NOT EXISTS paper_strategies (
     last_tick_at INTEGER,
     last_error TEXT,
     stop_reason TEXT,
+    peak_equity REAL,
+    freeze_until INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -560,6 +562,27 @@ def init_db() -> None:
         }
         if "stop_reason" not in columns:
             conn.execute("ALTER TABLE paper_strategies ADD COLUMN stop_reason TEXT")
+        if "peak_equity" not in columns:
+            conn.execute("ALTER TABLE paper_strategies ADD COLUMN peak_equity REAL")
+        if "freeze_until" not in columns:
+            conn.execute("ALTER TABLE paper_strategies ADD COLUMN freeze_until INTEGER")
+        settings = get_settings()
+        # Existing strategies: reconstruct the equity peak from the equity
+        # curve, and give the currently active one a freeze window from its
+        # original activation time.
+        conn.execute(
+            """UPDATE paper_strategies
+               SET peak_equity = COALESCE(
+                   (SELECT MAX(equity) FROM paper_equity e WHERE e.strategy_id=paper_strategies.id),
+                   starting_balance)
+               WHERE peak_equity IS NULL"""
+        )
+        conn.execute(
+            """UPDATE paper_strategies
+               SET freeze_until = created_at + ?
+               WHERE freeze_until IS NULL AND active=1""",
+            (int(max(0.0, settings.paper_freeze_hours) * 3600),),
+        )
         conn.execute(
             "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', '1')"
         )

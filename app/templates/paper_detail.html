@@ -19,6 +19,7 @@
       <h2>{{ strategy.name }}</h2>
       {% if strategy.active %}<span class="badge badge-ok">active</span>{% else %}<span class="badge badge-neutral">inactive</span>{% endif %}
       {% if strategy.stop_reason %}<span class="badge badge-bad">{{ strategy.stop_reason }}</span>{% endif %}
+      {% if strategy.active and strategy.freeze_until %}<span class="badge badge-warn">frozen until {{ strategy.freeze_until|ts("%Y-%m-%d %H:%M") }}</span>{% endif %}
     </div>
     <div class="addr mono">{{ strategy.id }} · source {{ strategy.source_run or "—" }}</div>
   </div>

@@ -102,9 +102,12 @@ def activate_paper_strategy(
     params: dict[str, Any],
     source_run: str | None = None,
     starting_balance: float | None = None,
+    freeze_hours: float | None = None,
 ) -> str:
     settings = get_settings()
     balance = float(starting_balance or settings.paper_starting_balance)
+    freeze = settings.paper_freeze_hours if freeze_hours is None else freeze_hours
+    freeze_until = now_ts() + int(max(0.0, freeze) * 3600) if freeze and freeze > 0 else None
     strategy_id = f"paper_{secrets.token_hex(6)}"
     conn = connect()
     try:
@@ -112,8 +115,8 @@ def activate_paper_strategy(
         conn.execute(
             """INSERT INTO paper_strategies(
                  id, name, source_run, params_json, active, starting_balance, cash,
-                 realized_pnl, fees_paid, created_at, updated_at)
-               VALUES(?,?,?,?,1,?,?,0,0,?,?)""",
+                 realized_pnl, fees_paid, peak_equity, freeze_until, created_at, updated_at)
+               VALUES(?,?,?,?,1,?,?,0,0,?,?,?,?)""",
             (
                 strategy_id,
                 name,
@@ -121,6 +124,8 @@ def activate_paper_strategy(
                 to_json(params),
                 balance,
                 balance,
+                balance,
+                freeze_until,
                 now_ts(),
                 now_ts(),
             ),
@@ -211,11 +216,13 @@ def _current_equity(conn: sqlite3.Connection, strategy: dict[str, Any]) -> float
 
 def _drawdown_breached(strategy: dict[str, Any], equity: float, max_drawdown: float) -> str | None:
     starting = float(strategy.get("starting_balance") or 0)
-    if starting <= 0 or max_drawdown <= 0:
+    peak = float(strategy.get("peak_equity") or starting or equity)
+    peak = max(peak, equity)
+    if peak <= 0 or max_drawdown <= 0:
         return None
-    drawdown = (starting - equity) / starting
+    drawdown = (peak - equity) / peak
     if drawdown >= max_drawdown:
-        return f"drawdown {drawdown:.1%} >= {max_drawdown:.1%}"
+        return f"peak drawdown {drawdown:.1%} >= {max_drawdown:.1%}"
     return None
 
 
@@ -255,6 +262,12 @@ def paper_tick() -> dict[str, Any]:
         max_drawdown = float(settings.paper_max_drawdown_pct)
         for strategy in strategies:
             equity = _current_equity(conn, strategy)
+            peak = max(float(strategy.get("peak_equity") or strategy["starting_balance"]), equity)
+            conn.execute(
+                "UPDATE paper_strategies SET peak_equity=? WHERE id=?",
+                (peak, strategy["id"]),
+            )
+            strategy = {**strategy, "peak_equity": peak}
             stop = _drawdown_breached(strategy, equity, max_drawdown)
             if stop:
                 conn.execute(
@@ -397,7 +410,12 @@ def paper_tick() -> dict[str, Any]:
         for strategy in strategies:
             _mark_equity(conn, strategy, now)
             equity = _current_equity(conn, strategy)
-            stop = _drawdown_breached(strategy, equity, max_drawdown)
+            peak = max(float(strategy.get("peak_equity") or strategy["starting_balance"]), equity)
+            conn.execute(
+                "UPDATE paper_strategies SET peak_equity=? WHERE id=?",
+                (peak, strategy["id"]),
+            )
+            stop = _drawdown_breached({**strategy, "peak_equity": peak}, equity, max_drawdown)
             if stop and int(strategy.get("active") or 0):
                 conn.execute(
                     "UPDATE paper_strategies SET active=0, stop_reason=?, updated_at=? WHERE id=?",
@@ -493,6 +511,15 @@ def promotion_decision(
                 "active_id": None,
             }
         return {"replace": True, "reason": "no active paper strategy", "active_id": None}
+    freeze_until = active.get("freeze_until")
+    if freeze_until and now_ts() < int(freeze_until):
+        until = datetime.fromtimestamp(int(freeze_until), timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        return {
+            "replace": False,
+            "reason": f"frozen until {until}",
+            "active_id": active["id"],
+            "active_val_roi": source_val_roi(conn, active) or 0.0,
+        }
     if candidate_val_roi is None or float(candidate_val_roi) <= 0:
         return {
             "replace": False,

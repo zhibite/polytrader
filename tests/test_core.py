@@ -356,6 +356,7 @@ def test_paper_promotion_rules(db):
         "retention-test",
         {"source_val_roi": 0.02},
         starting_balance=500,
+        freeze_hours=0,
     )
     recent = promotion_decision(
         db, 0.05, min_retention_hours=24, min_settled_trades=100, margin=0.01
@@ -408,6 +409,32 @@ def test_paper_drawdown_stop(db):
     row = db.execute("SELECT active, stop_reason FROM paper_strategies WHERE id=?", (strategy_id,)).fetchone()
     assert row["active"] == 0
     assert "drawdown" in (row["stop_reason"] or "")
+
+
+def test_paper_freeze_blocks_promotion(db):
+    from app.services.paper import activate_paper_strategy, promotion_decision
+
+    strategy_id = activate_paper_strategy(
+        "freeze-test",
+        {"source_val_roi": 0.01},
+        starting_balance=500,
+        freeze_hours=168,
+    )
+    frozen = promotion_decision(
+        db, 0.50, min_retention_hours=24, min_settled_trades=100, margin=0.01
+    )
+    assert frozen["replace"] is False
+    assert "frozen until" in frozen["reason"]
+
+    db.execute(
+        "UPDATE paper_strategies SET freeze_until=?, created_at=? WHERE id=?",
+        (now_ts() - 1, now_ts() - 25 * 3600, strategy_id),
+    )
+    db.commit()
+    eligible = promotion_decision(
+        db, 0.50, min_retention_hours=24, min_settled_trades=100, margin=0.01
+    )
+    assert eligible["replace"] is True
 
 
 def test_replica_mid_maker(db):
