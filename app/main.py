@@ -19,6 +19,7 @@ from .services.demo import seed_demo
 from .services.jobs import JobWorker, create_job, reset_stale_jobs
 from .services.monitor import monitor_all_tracked
 from .services.paper import PaperWorker
+from .services.live import LiveError, executor as live_executor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,6 +32,25 @@ worker = JobWorker()
 paper_worker = PaperWorker()
 _monitor_task: asyncio.Task | None = None
 _pipeline_task: asyncio.Task | None = None
+_live_task: asyncio.Task | None = None
+
+
+async def _live_loop() -> None:
+    """Reconcile live orders/balances and enforce the kill switch.
+
+    This loop never places orders. It only reconciles and cancels. It is
+    started only when live execution is explicitly enabled.
+    """
+    while True:
+        try:
+            status = live_executor.configured_status()
+            if status.get("credentials_ready"):
+                await live_executor.reconcile()
+                if status.get("kill_switch"):
+                    await live_executor.cancel_all("kill_switch")
+        except (LiveError, Exception) as exc:
+            log.warning("live reconcile loop: %s", exc)
+        await asyncio.sleep(20)
 
 
 async def _pipeline_loop() -> None:
@@ -107,11 +127,13 @@ async def lifespan(app: FastAPI):
     else:
         collector_manager._enabled = settings.collector_enabled
     collector_manager.start()
-    global _monitor_task, _pipeline_task
+    global _monitor_task, _pipeline_task, _live_task
     if settings.monitor_interval_hours > 0:
         _monitor_task = asyncio.create_task(_monitor_loop(), name="monitor-loop")
     if settings.auto_pipeline_hours > 0:
         _pipeline_task = asyncio.create_task(_pipeline_loop(), name="pipeline-loop")
+    if settings.live_enabled:
+        _live_task = asyncio.create_task(_live_loop(), name="live-loop")
     log.info("%s %s ready", settings.app_name, settings.app_version)
     try:
         yield
@@ -126,6 +148,12 @@ async def lifespan(app: FastAPI):
             _pipeline_task.cancel()
             try:
                 await _pipeline_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        if _live_task:
+            _live_task.cancel()
+            try:
+                await _live_task
             except (asyncio.CancelledError, Exception):
                 pass
         await collector_manager.stop()

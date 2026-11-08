@@ -1,0 +1,3 @@
+# Optional live-execution SDK. Only install when LAB_TRADING_MODE=live.
+# In Docker build with: --build-arg INSTALL_LIVE_DEPS=1
+py-clob-client-v2>=1.0,<2

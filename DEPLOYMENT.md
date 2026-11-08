@@ -136,7 +136,13 @@ PY
 
 或从宿主机对 volume 做快照。备份文件可下载后本地打开。
 
-## 六、安全
+## 六、实盘执行层（默认关闭）
+
+应用默认 `LAB_TRADING_MODE=paper`、`LAB_LIVE_ENABLED=0`，实盘代码不会被纸盘 pipeline 调用。
+如果以后要启用：构建时加 `--build-arg INSTALL_LIVE_DEPS=1`，配置私钥/L2 API/确认短语/风控，
+并在 `/execution` 页面验证 kill switch 和对账。详见 [docs/live-execution.md](docs/live-execution.md)。
+
+## 七、安全
 
 - 应用默认**没有用户系统**。公网部署务必设置 `LAB_AUTH_USER` / `LAB_AUTH_PASSWORD`；旧版 `LAB_BASIC_AUTH_*` 仍兼容。
 - 浏览器使用 `/login` 网页登录（签名 session cookie）；脚本/API 仍可用同一组凭据走 HTTP Basic Auth。
@@ -144,7 +150,7 @@ PY
 - 应用只读公开成交与行情，不下单、不签名、不接触私钥。
 - 不要在环境变量里放 Polymarket API Key；本项目不需要任何交易凭证。
 
-## 七、常见问题
+## 八、常见问题
 
 | 现象 | 排查 |
 |---|---|
@@ -157,7 +163,7 @@ PY
 | 公网 502 但容器 healthy | 应用默认同时监听 8000/8021；确认 Coolify Ports Exposes 是 8000 或 8021，然后 Redeploy 重新生成 Traefik 标签 |
 | 想清空数据 | 停止容器，删除卷内 `lab.sqlite*`，重新部署；或设置 `LAB_DEMO_SEED=1` 前先备份 |
 
-## 八、升级
+## 九、升级
 
 重新构建/部署即可。schema 使用 `CREATE TABLE IF NOT EXISTS`，现有 DB 不会被清空；
 新增表会在启动时自动创建。升级前建议先做一次 SQLite 备份。

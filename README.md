@@ -14,6 +14,7 @@ Polymarket 交易者行为归因与策略研究平台。目标不是“跟单”
 | Shadow / Replica | `/shadow`、`/replica` | Shadow：同价/延迟复刻目标成交；Replica：用推断的报价偏移、窗口、价格带、库存独立跑纸盘 |
 | 策略实验室 | `/lab` | 参数网格扫描、自动多轮细化、train/validation、按验证集 ROI 排名、保存策略配置 |
 | 前向纸盘 | `/paper` | 用 collector 实时数据模拟成交，展示策略权益、持仓与成交；不碰私钥、不下真实订单 |
+| 实盘执行层 | `/execution` | 私钥签名、下单/撤单/对账、kill switch、风控上限；**默认关闭，不接入纸盘 pipeline** |
 | 持续监控 | `/monitor` | 定时快照，跟踪 entry edge、markout、返佣、配对成本、成交量的漂移与告警 |
 | 行情采集 | `/collector` | WebSocket 订阅 BTC 5m CLOB market channel，采集 book/price_change/last_trade_price；同时轮询目标钱包最新成交 |
 
@@ -228,6 +229,7 @@ app/
     sweep.py              参数网格扫描 + train/validation + 策略保存
     pipeline.py           ingest → 自动多轮扫描 → 保存/激活纸盘
     paper.py              前向纸盘引擎（collector 实时数据）
+    live.py               实盘执行层：签名/下单/撤单/对账/kill switch（默认关闭）
     monitor.py            快照与漂移
     collector.py          BTC 5m WebSocket 采集
     discovery.py          leaderboard 同步
@@ -245,7 +247,16 @@ tests/                    单元测试
 - markout 依赖对应市场/时段的 1 秒样本；样本缺失时留空，不会伪造。
 - 1 秒 mid 代替真实盘口，Replica 成交率通常偏乐观。
 - 全量 57 万笔成交的 enrichment 很重；默认只 enrich 最近 N 笔。配对/返佣/时段分析仍覆盖全部已入库成交。
-- 不包含实盘下单、签名或私钥；无任何盈利保证。
+- 实盘执行层代码已实现但默认关闭，且不接入纸盘/自动 pipeline；实盘 pilot 的完整风控仍未验证。
+- 无任何盈利保证。
+
+## 实盘执行层
+
+相关文件：[app/services/live.py](app/services/live.py)、[requirements-live.txt](requirements-live.txt)、[docs/live-execution.md](docs/live-execution.md)。
+
+实盘代码已实现，但默认只跑纸盘：`LAB_TRADING_MODE=paper`、`LAB_LIVE_ENABLED=0`。
+启用需要显式确认短语、私钥、L2 API 凭据、风控上限和可选 SDK；详见
+[docs/live-execution.md](docs/live-execution.md)。执行层不会被自动 pipeline 调用。
 
 ## 测试
 

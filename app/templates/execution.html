@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import kpi, empty_state, status_badge %}
+{% from "partials/icons.html" import icon %}
+
+{% block title %}执行层{% endblock %}
+{% block page_title %}Live Execution{% endblock %}
+{% block page_subtitle %}私钥签名 · 下单 / 撤单 / 对账 · kill switch · 默认关闭{% endblock %}
+
+{% block content %}
+{% if live_msg %}<div class="alert alert-ok" style="margin-bottom:14px">{{ live_msg }}</div>{% endif %}
+{% if live_error %}<div class="alert alert-error" style="margin-bottom:14px">{{ live_error }}</div>{% endif %}
+
+{% if status.kill_switch %}
+<div class="alert alert-error" style="margin-bottom:14px">
+  <strong>KILL SWITCH ACTIVE</strong> · {{ status.kill_reason or "manual" }}。所有新订单被阻止。
+</div>
+{% elif status.ready %}
+<div class="alert alert-warn" style="margin-bottom:14px">
+  <strong>LIVE READY</strong> · 实盘执行层已就绪。当前策略仍由纸盘引擎运行；执行层不会自动下单。
+</div>
+{% else %}
+<div class="alert alert-info" style="margin-bottom:14px">
+  <strong>LIVE DISABLED</strong> · 当前为纸盘模式。以下条件未满足：
+  <ul style="margin:8px 0 0 18px">
+    {% for reason in status.reasons %}<li>{{ reason }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="kpi-grid" style="margin-bottom:14px">
+  {{ kpi("模式", status.mode|upper, "paper / live", "amber" if status.mode == "live" else "") }}
+  {{ kpi("Live Enabled", "YES" if status.enabled else "NO", "env 显式开启", "green" if status.enabled else "red") }}
+  {{ kpi("Ready", "YES" if status.ready else "NO", "签名 / API / 风控", "green" if status.ready else "red") }}
+  {{ kpi("Kill Switch", "ACTIVE" if status.kill_switch else "off", status.kill_reason or "可随时触发", "red" if status.kill_switch else "green") }}
+  {{ kpi("Balance", (status.balance.balance|money(2) if status.balance else "—"), "pUSD / 最近一次对账") }}
+  {{ kpi("Open Orders", (status.open_orders|length)|num, "本地跟踪") }}
+  {{ kpi("Order Count", status.order_count|num, "历史累计") }}
+  {{ kpi("Last Reconcile", status.last_reconcile|ts("%m-%d %H:%M:%S") if status.last_reconcile else "—", "UTC") }}
+</div>
+
+<div class="grid grid-2" style="margin-bottom:14px">
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">风控参数</div><div class="card-sub">仅对实盘执行层生效</div></div></div>
+    <div class="card-body">
+      <div class="stat-line"><span class="k">单笔最大名义</span><span class="v">{{ status.limits.max_order_notional_usdc|money(2) }}</span></div>
+      <div class="stat-line"><span class="k">总敞口上限</span><span class="v">{{ status.limits.max_open_notional_usdc|money(2) }}</span></div>
+      <div class="stat-line"><span class="k">每分钟最大订单</span><span class="v">{{ status.limits.max_orders_per_minute }}</span></div>
+      <div class="stat-line"><span class="k">最小 size</span><span class="v">{{ status.limits.min_order_size|num(1) }} shares</span></div>
+      <div class="stat-line"><span class="k">凭据</span><span class="v">private key {{ "set" if status.private_key_set else "missing" }} · API {{ "set" if status.api_creds_set else "missing" }} · funder {{ "set" if status.funder_set else "—" }}</span></div>
+      {% if status.credential_reasons %}
+      <div class="alert alert-warn small" style="margin-top:10px">{{ status.credential_reasons|join(" · ") }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">操作</div><div class="card-sub">执行层不会被纸盘 pipeline 自动调用</div></div></div>
+    <div class="card-body stack">
+      <form method="post" action="/actions/live/reconcile">
+        <button class="btn btn-sm" type="submit">{{ icon("refresh", 14) }} 刷新对账</button>
+      </form>
+      <form method="post" action="/actions/live/cancel-all">
+        <button class="btn btn-sm btn-danger" type="submit" {% if not status.credentials_ready %}disabled{% endif %}>
+          {{ icon("alert", 14) }} 取消全部挂单
+        </button>
+      </form>
+      <form method="post" action="/actions/live/kill" class="row" style="gap:6px">
+        <input class="input" name="reason" placeholder="kill 原因" style="max-width:220px">
+        <button class="btn btn-danger" type="submit">{{ icon("shield", 14) }} Kill Switch</button>
+      </form>
+      <form method="post" action="/actions/live/release" class="row" style="gap:6px">
+        <input class="input" name="confirm" placeholder="输入 RELEASE_KILL_SWITCH" style="max-width:240px">
+        <button class="btn btn-sm" type="submit">解除 kill switch</button>
+      </form>
+      <div class="alert alert-warn small">
+        实盘下单代码已实现，但故意不接入纸盘 pipeline。当前只有手动 API
+        `POST /api/live/order`（confirm=PLACE_LIVE_ORDER）或未来策略显式调用
+        `LiveExecutor.place_limit` 才会下单。私钥和 API 凭据只从环境变量读取，页面不会展示。
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">挂单 / 订单</div><div class="card-sub">本地跟踪 + 对账结果</div></div></div>
+    <div class="card-body flush">
+      {% if status.open_orders %}
+      <div class="table-wrap" style="max-height:420px">
+        <table>
+          <thead><tr><th>时间</th><th>Exchange ID</th><th>Token</th><th>方向</th><th class="num">价格</th><th class="num">Size</th><th>状态</th></tr></thead>
+          <tbody>
+          {% for item in status.open_orders %}
+            <tr>
+              <td class="muted small nowrap">{{ item.created_at|ts("%m-%d %H:%M:%S") }}</td>
+              <td class="mono small">{{ (item.exchange_order_id or item.id)|truncate(18, True, "…") }}</td>
+              <td class="mono small">{{ (item.token_id or "")|truncate(14, True, "…") }}</td>
+              <td>{{ item.side }}</td>
+              <td class="num">{{ item.price|price(3) }}</td>
+              <td class="num">{{ item.size|num(1) }}</td>
+              <td><span class="badge badge-{{ 'ok' if item.status == 'LIVE' else ('warn' if item.status == 'MISSING' else 'neutral') }}">{{ item.status }}</span></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<div class="table-empty">没有本地跟踪的实盘订单</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">执行事件</div><div class="card-sub">最近 30 条</div></div></div>
+    <div class="card-body flush">
+      {% if status.events %}
+      <div class="table-wrap" style="max-height:420px">
+        <table>
+          <thead><tr><th>时间</th><th>级别</th><th>信息</th></tr></thead>
+          <tbody>
+          {% for item in status.events %}
+            <tr>
+              <td class="muted small nowrap">{{ item.ts|ts("%m-%d %H:%M:%S") }}</td>
+              <td><span class="badge badge-{{ 'bad' if item.level == 'ERROR' else ('warn' if item.level == 'WARNING' else 'ok') }}">{{ item.level }}</span></td>
+              <td class="small">{{ item.message }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<div class="table-empty">还没有执行事件</div>{% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="alert alert-info" style="margin-top:14px">
+  安全默认：`LAB_TRADING_MODE=paper`、`LAB_LIVE_ENABLED=0`。实盘需要显式确认短语、私钥、L2 API 凭据、
+  funder（Proxy/Safe）和风控上限；kill switch 会写入持久化文件并阻止所有新订单。
+</div>
+{% endblock %}

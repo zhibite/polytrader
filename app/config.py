@@ -53,6 +53,24 @@ class Settings(BaseSettings):
     paper_max_drawdown_pct: float = 0.10
     paper_freeze_hours: float = 336.0
 
+    # ── Live execution (disabled by default) ────────────────────────────
+    trading_mode: str = "paper"  # paper | live
+    live_enabled: bool = False
+    live_confirm: str | None = None
+    live_confirm_phrase: str = "I_UNDERSTAND_LIVE_TRADING"
+    live_private_key: str | None = None
+    live_api_key: str | None = None
+    live_api_secret: str | None = None
+    live_api_passphrase: str | None = None
+    live_funder_address: str | None = None
+    live_signature_type: int = 0
+    live_chain_id: int = 137
+    live_clob_host: str = "https://clob.polymarket.com"
+    live_max_order_notional_usdc: float = 5.0
+    live_max_open_notional_usdc: float = 25.0
+    live_max_orders_per_minute: int = 10
+    live_min_order_size: float = 5.0
+
     demo_seed: bool = False
 
     api_base: str = "https://data-api.polymarket.com/v2"

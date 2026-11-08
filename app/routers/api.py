@@ -4,12 +4,15 @@ from typing import Any
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
 
 from ..config import get_settings
 from ..db import connect
 from ..services import collector as collector_service
 from ..services import discovery as discovery_service
 from ..services import metrics
+from ..services.live import LiveError
+from ..services.live import executor as live_executor
 from ..services.jobs import get_job, list_jobs
 from ..templating import templates
 
@@ -71,6 +74,35 @@ def collector_partial(request: Request):
         name="partials/collector_status.html",
         context={"request": request, "status": status, "books": books, "trades": trades},
     )
+
+
+@router.get("/live/status")
+def live_status() -> dict[str, Any]:
+    return live_executor.status()
+
+
+class LiveOrderRequest(BaseModel):
+    token_id: str
+    side: str
+    price: float
+    size: float
+    confirm: str = ""
+
+
+@router.post("/live/order")
+async def live_order(payload: LiveOrderRequest) -> JSONResponse:
+    if payload.confirm != "PLACE_LIVE_ORDER":
+        return JSONResponse(
+            {"ok": False, "error": "confirm must be PLACE_LIVE_ORDER"},
+            status_code=400,
+        )
+    try:
+        result = await live_executor.place_limit(
+            payload.token_id, payload.side, payload.price, payload.size
+        )
+        return JSONResponse({"ok": True, "result": result})
+    except LiveError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
 
 
 @router.get("/wallets/{address}/dossier")

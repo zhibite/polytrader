@@ -465,6 +465,48 @@ CREATE TABLE IF NOT EXISTS paper_state (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS live_orders (
+    id TEXT PRIMARY KEY,
+    exchange_order_id TEXT,
+    token_id TEXT NOT NULL,
+    side TEXT NOT NULL,
+    price REAL NOT NULL,
+    size REAL NOT NULL,
+    status TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    raw_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_live_orders_status ON live_orders(status, created_at);
+
+CREATE TABLE IF NOT EXISTS live_fills (
+    id TEXT PRIMARY KEY,
+    order_id TEXT,
+    trade_id TEXT,
+    token_id TEXT,
+    side TEXT,
+    price REAL,
+    size REAL,
+    fee REAL,
+    ts INTEGER,
+    raw_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_live_fills_ts ON live_fills(ts);
+
+CREATE TABLE IF NOT EXISTS live_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL,
+    level TEXT NOT NULL,
+    message TEXT NOT NULL,
+    raw_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_live_events_ts ON live_events(ts);
+
+CREATE TABLE IF NOT EXISTS live_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS monitor_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     address TEXT NOT NULL,

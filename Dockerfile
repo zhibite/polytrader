@@ -7,8 +7,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+COPY requirements.txt requirements-live.txt .
+ARG INSTALL_LIVE_DEPS=0
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
+    && if [ "$INSTALL_LIVE_DEPS" = "1" ]; then \
+         pip install --no-cache-dir --prefix=/install -r requirements-live.txt; \
+       fi
 
 FROM python:3.12-slim
 

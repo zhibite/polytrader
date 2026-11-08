@@ -226,6 +226,53 @@ def save_strategy_action(
     return _redirect(request, f"/lab/{run_id}")
 
 
+@router.post("/actions/live/reconcile")
+async def live_reconcile(request: Request):
+    from ..services.live import LiveError, executor
+
+    try:
+        await executor.reconcile()
+        return _redirect(request, "/execution?live_msg=reconciled")
+    except LiveError as exc:
+        from urllib.parse import quote
+
+        return _redirect(request, f"/execution?live_error={quote(str(exc))}")
+
+
+@router.post("/actions/live/cancel-all")
+async def live_cancel_all(request: Request):
+    from ..services.live import LiveError, executor
+
+    try:
+        await executor.cancel_all(reason="manual")
+        return _redirect(request, "/execution?live_msg=cancelled")
+    except LiveError as exc:
+        from urllib.parse import quote
+
+        return _redirect(request, f"/execution?live_error={quote(str(exc))}")
+
+
+@router.post("/actions/live/kill")
+async def live_kill(request: Request, reason: Annotated[str, Form()] = "manual"):
+    from ..services.live import executor
+
+    await executor.engage_kill(reason=reason or "manual")
+    return _redirect(request, "/execution?live_msg=kill_switch_engaged")
+
+
+@router.post("/actions/live/release")
+def live_release(request: Request, confirm: Annotated[str, Form()] = ""):
+    from ..services.live import KILL_SWITCH_RELEASE, LiveError, executor
+
+    try:
+        executor.release_kill(confirm)
+        return _redirect(request, "/execution?live_msg=kill_switch_released")
+    except LiveError as exc:
+        from urllib.parse import quote
+
+        return _redirect(request, f"/execution?live_error={quote(str(exc))}")
+
+
 @router.post("/actions/monitor")
 def monitor_now(request: Request, address: Annotated[str | None, Form()] = None):
     targets = [address.lower()] if address else []

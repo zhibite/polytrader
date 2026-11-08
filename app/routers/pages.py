@@ -13,6 +13,7 @@ from ..services import metrics
 from ..services import collector as collector_service
 from ..services import sweep as sweep_service
 from ..services import paper as paper_service
+from ..services.live import executor as live_executor
 from ..services.jobs import get_job, list_jobs
 from ..services.monitor import drift, snapshot_rows
 from ..services.profiles import cluster_wallets
@@ -34,6 +35,7 @@ NAV = [
     {"href": "/shadow", "label": "Shadow 复刻", "icon": "layers"},
     {"href": "/replica", "label": "Replica 纸盘", "icon": "flask"},
     {"href": "/paper", "label": "前向纸盘", "icon": "flask"},
+    {"href": "/execution", "label": "执行层", "icon": "shield"},
     {"href": "/monitor", "label": "持续监控", "icon": "pulse"},
     {"href": "/collector", "label": "行情采集", "icon": "signal"},
 ]
@@ -399,6 +401,18 @@ def paper_detail(request: Request, strategy_id: str):
         "positions": [point["positions_value"] for point in equity],
     }
     return _render(request, "paper_detail.html", strategy=strategy, chart=chart)
+
+
+@router.get("/execution", response_class=HTMLResponse)
+def execution_page(request: Request):
+    status = live_executor.status()
+    return _render(
+        request,
+        "execution.html",
+        status=status,
+        live_msg=request.query_params.get("live_msg"),
+        live_error=request.query_params.get("live_error"),
+    )
 
 
 @router.get("/monitor", response_class=HTMLResponse)

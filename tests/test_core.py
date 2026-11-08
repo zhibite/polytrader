@@ -289,7 +289,9 @@ def test_paper_engine_opens_and_settles(db):
     from app.services.paper import activate_paper_strategy, paper_tick
 
     now = now_ts()
-    start = (now // 300) * 300
+    # Keep the test market away from the 5-minute boundary so a slow test
+    # cannot race the window close between tick and assertion.
+    start = now - 60
     slug = f"btc-updown-5m-{start}"
     condition = "0x" + "cd" * 32
     db.execute(
@@ -435,6 +437,56 @@ def test_paper_freeze_blocks_promotion(db):
         db, 0.50, min_retention_hours=24, min_settled_trades=100, margin=0.01
     )
     assert eligible["replace"] is True
+
+
+def test_live_execution_is_disabled_by_default(db):
+    from app.services.live import LiveExecutor
+
+    executor = LiveExecutor()
+    status = executor.configured_status()
+    assert status["ready"] is False
+    assert status["mode"] == "paper"
+    assert "live_enabled is false" in status["reasons"]
+    assert status["kill_switch"] is False
+
+
+def test_live_order_risk_validation(db):
+    from app.services.live import LiveError, LiveExecutor
+
+    executor = LiveExecutor()
+    assert executor._validate_order("token", "BUY", 0.5, 10) == pytest.approx(5.0)
+    with pytest.raises(LiveError):
+        executor._validate_order("token", "BUY", 1.5, 10)
+    with pytest.raises(LiveError):
+        executor._validate_order("token", "BUY", 0.5, 1)
+    with pytest.raises(LiveError):
+        executor._validate_order("token", "BUY", 0.9, 10)
+
+
+def test_live_kill_switch_persists(db, tmp_path, monkeypatch):
+    import asyncio
+
+    from app.services.live import (
+        KILL_SWITCH_RELEASE,
+        LiveError,
+        LiveExecutor,
+        kill_switch_active,
+    )
+
+    monkeypatch.setenv("LAB_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("LAB_LIVE_PRIVATE_KEY", "super-secret")
+    get_settings.cache_clear()
+    try:
+        executor = LiveExecutor()
+        asyncio.run(executor.engage_kill("test"))
+        assert kill_switch_active() is True
+        assert executor.status()["kill_switch"] is True
+        with pytest.raises(LiveError):
+            executor.release_kill("wrong")
+        executor.release_kill(KILL_SWITCH_RELEASE)
+        assert kill_switch_active() is False
+    finally:
+        get_settings.cache_clear()
 
 
 def test_replica_mid_maker(db):

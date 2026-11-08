@@ -13,3 +13,5 @@ node_modules/
 .ruff_cache/
 *.log
 .DS_Store
+data/KILL_SWITCH
+data/live_test_data/
