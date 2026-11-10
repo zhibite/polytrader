@@ -12,7 +12,12 @@ from typing import Any, Callable
 from ..config import get_settings
 from ..db import connect, now_ts
 from .ingest import ingest_wallet
-from .paper import activate_paper_strategy, promotion_decision
+from .paper import (
+    activate_paper_strategy,
+    active_strategy,
+    candidate_gate_reasons,
+    promotion_decision,
+)
 from .sweep import run_auto_sweep, save_strategy
 
 ProgressFn = Callable[[int, int, str], None]
@@ -84,12 +89,40 @@ def run_pipeline(
         ),
     )
     sweep_summary = sweep_result.get("summary") or {}
-    best = sweep_summary.get("best") or {}
+    raw_best = sweep_summary.get("best") or {}
+    candidates = sweep_result.get("results") or []
+    best = next(
+        (
+            item
+            for item in candidates
+            if not candidate_gate_reasons(
+                item,
+                min_train_roi=settings.paper_candidate_min_train_roi,
+                min_val_roi=settings.paper_candidate_min_val_roi,
+                min_profit_factor=settings.paper_candidate_min_profit_factor,
+                min_val_fills=settings.paper_candidate_min_val_fills,
+            )
+        ),
+        None,
+    )
     saved_strategy_id = None
     paper_strategy_id = None
     paper_action = None
     decision: dict[str, Any] | None = None
-    if best and best.get("params") and (best.get("score") or -999) > -900:
+    if best is None:
+        conn = connect()
+        try:
+            active = active_strategy(conn)
+        finally:
+            conn.close()
+        paper_strategy_id = active["id"] if active else None
+        paper_action = "kept" if active else None
+        decision = {
+            "replace": False,
+            "reason": "no candidate passed candidate gates",
+            "active_id": paper_strategy_id,
+        }
+    if best is not None and best.get("params"):
         name = f"auto-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}"
         metrics = {
             key: best.get(key)
@@ -106,6 +139,9 @@ def run_pipeline(
                 "val_roi",
                 "val_fills",
                 "val_win_rate",
+                "train_profit_factor",
+                "val_profit_factor",
+                "profit_factor",
             )
         }
         saved_strategy_id = save_strategy(
@@ -128,10 +164,14 @@ def run_pipeline(
         try:
             decision = promotion_decision(
                 conn,
-                best.get("val_roi"),
+                best,
                 min_retention_hours=settings.paper_min_retention_hours,
                 min_settled_trades=settings.paper_min_settled_trades,
                 margin=settings.paper_promotion_margin,
+                min_train_roi=settings.paper_candidate_min_train_roi,
+                min_val_roi=settings.paper_candidate_min_val_roi,
+                min_profit_factor=settings.paper_candidate_min_profit_factor,
+                min_val_fills=settings.paper_candidate_min_val_fills,
             )
         finally:
             conn.close()
@@ -160,7 +200,9 @@ def run_pipeline(
         },
         "saved_strategy_id": saved_strategy_id,
         "paper_strategy_id": paper_strategy_id,
-        "paper_action": paper_action if best and best.get("params") else None,
-        "paper_decision": decision if best and best.get("params") else None,
+        "paper_action": paper_action,
+        "paper_decision": decision,
+        "raw_best": raw_best,
+        "gate_rejected": best is None,
         "completed_at": now_ts(),
     }

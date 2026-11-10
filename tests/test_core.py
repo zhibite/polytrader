@@ -74,6 +74,20 @@ def _seed_market(conn, address=ADDRESS, start=None, resolved="UP"):
     return slug, condition, start
 
 
+def _candidate(
+    val_roi: float = 0.05,
+    train_roi: float = 0.02,
+    val_fills: int = 100,
+    val_pf: float = 1.5,
+) -> dict:
+    return {
+        "val_roi": val_roi,
+        "train_roi": train_roi,
+        "val_fills": val_fills,
+        "val_profit_factor": val_pf,
+    }
+
+
 def test_parse_slug_and_tokens():
     assert parse_slug("btc-updown-5m-1793670300") == ("btc", "5m", 1793670300)
     assert parse_slug("eth-updown-15m-1793670000") == ("eth", "15m", 1793670000)
@@ -345,14 +359,26 @@ def test_paper_engine_opens_and_settles(db):
     assert position["settlement_pnl"] is not None
 
 
+def test_candidate_gate_thresholds():
+    from app.services.paper import candidate_gate_reasons
+
+    assert candidate_gate_reasons(_candidate()) == []
+    weak_train = _candidate(train_roi=-0.01)
+    assert any("train ROI" in reason for reason in candidate_gate_reasons(weak_train))
+    weak_pf = _candidate(val_pf=1.1)
+    assert any("val PF" in reason for reason in candidate_gate_reasons(weak_pf))
+    few_fills = _candidate(val_fills=10)
+    assert any("val fills" in reason for reason in candidate_gate_reasons(few_fills))
+
+
 def test_paper_promotion_rules(db):
     from app.services.paper import activate_paper_strategy, promotion_decision
 
-    no_active = promotion_decision(db, 0.05)
+    no_active = promotion_decision(db, _candidate())
     assert no_active["replace"] is True
-    flat = promotion_decision(db, 0.0)
+    flat = promotion_decision(db, _candidate(val_roi=0.0))
     assert flat["replace"] is False
-    assert "staying flat" in flat["reason"]
+    assert "candidate gate" in flat["reason"]
 
     strategy_id = activate_paper_strategy(
         "retention-test",
@@ -361,16 +387,28 @@ def test_paper_promotion_rules(db):
         freeze_hours=0,
     )
     recent = promotion_decision(
-        db, 0.05, min_retention_hours=24, min_settled_trades=100, margin=0.01
+        db, _candidate(), min_retention_hours=24, min_settled_trades=100, margin=0.01
     )
     assert recent["replace"] is False
     assert "retention" in recent["reason"]
 
     negative = promotion_decision(
-        db, -0.01, min_retention_hours=24, min_settled_trades=100, margin=0.01
+        db, _candidate(val_roi=-0.01), min_retention_hours=24, min_settled_trades=100, margin=0.01
     )
     assert negative["replace"] is False
-    assert "candidate val ROI <= 0" in negative["reason"]
+    assert "candidate gate" in negative["reason"]
+
+    weak_pf = promotion_decision(
+        db, _candidate(val_pf=1.1), min_retention_hours=24, min_settled_trades=100, margin=0.01
+    )
+    assert weak_pf["replace"] is False
+    assert "val PF" in weak_pf["reason"]
+
+    few_fills = promotion_decision(
+        db, _candidate(val_fills=10), min_retention_hours=24, min_settled_trades=100, margin=0.01
+    )
+    assert few_fills["replace"] is False
+    assert "val fills" in few_fills["reason"]
 
     db.execute(
         "UPDATE paper_strategies SET created_at=? WHERE id=?",
@@ -378,12 +416,12 @@ def test_paper_promotion_rules(db):
     )
     db.commit()
     below_margin = promotion_decision(
-        db, 0.025, min_retention_hours=24, min_settled_trades=100, margin=0.01
+        db, _candidate(val_roi=0.025), min_retention_hours=24, min_settled_trades=100, margin=0.01
     )
     assert below_margin["replace"] is False
 
     above_margin = promotion_decision(
-        db, 0.035, min_retention_hours=24, min_settled_trades=100, margin=0.01
+        db, _candidate(val_roi=0.035), min_retention_hours=24, min_settled_trades=100, margin=0.01
     )
     assert above_margin["replace"] is True
 
@@ -423,7 +461,7 @@ def test_paper_freeze_blocks_promotion(db):
         freeze_hours=168,
     )
     frozen = promotion_decision(
-        db, 0.50, min_retention_hours=24, min_settled_trades=100, margin=0.01
+        db, _candidate(val_roi=0.50), min_retention_hours=24, min_settled_trades=100, margin=0.01
     )
     assert frozen["replace"] is False
     assert "frozen until" in frozen["reason"]
@@ -434,7 +472,7 @@ def test_paper_freeze_blocks_promotion(db):
     )
     db.commit()
     eligible = promotion_decision(
-        db, 0.50, min_retention_hours=24, min_settled_trades=100, margin=0.01
+        db, _candidate(val_roi=0.50), min_retention_hours=24, min_settled_trades=100, margin=0.01
     )
     assert eligible["replace"] is True
 

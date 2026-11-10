@@ -371,6 +371,9 @@ CREATE TABLE IF NOT EXISTS sweep_results (
     val_roi REAL,
     val_fills INTEGER,
     val_win_rate REAL,
+    train_profit_factor REAL,
+    val_profit_factor REAL,
+    profit_factor REAL,
     pnl REAL,
     roi REAL,
     fills INTEGER,
@@ -608,6 +611,12 @@ def init_db() -> None:
             conn.execute("ALTER TABLE paper_strategies ADD COLUMN peak_equity REAL")
         if "freeze_until" not in columns:
             conn.execute("ALTER TABLE paper_strategies ADD COLUMN freeze_until INTEGER")
+        sweep_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(sweep_results)").fetchall()
+        }
+        for column in ("train_profit_factor", "val_profit_factor", "profit_factor"):
+            if column not in sweep_columns:
+                conn.execute(f"ALTER TABLE sweep_results ADD COLUMN {column} REAL")
         settings = get_settings()
         # Existing strategies: reconstruct the equity peak from the equity
         # curve, and give the currently active one a freeze window from its

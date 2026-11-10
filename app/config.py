@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     paper_promotion_margin: float = 0.01
     paper_max_drawdown_pct: float = 0.10
     paper_freeze_hours: float = 336.0
+    paper_candidate_min_train_roi: float = 0.0
+    paper_candidate_min_val_roi: float = 0.0
+    paper_candidate_min_profit_factor: float = 1.2
+    paper_candidate_min_val_fills: int = 50
 
     # ── Live execution (disabled by default) ────────────────────────────
     trading_mode: str = "paper"  # paper | live

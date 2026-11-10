@@ -213,7 +213,8 @@ def _metrics(
             "pnl": 0.0, "roi": None, "fills": 0, "win_rate": None, "cost": 0.0,
             "max_drawdown": None, "train_pnl": 0.0, "train_roi": None, "train_fills": 0,
             "train_win_rate": None, "val_pnl": 0.0, "val_roi": None, "val_fills": 0,
-            "val_win_rate": None, "score": -999.0, "skipped_portfolio": 0,
+            "val_win_rate": None, "profit_factor": None, "train_profit_factor": None,
+            "val_profit_factor": None, "score": -999.0, "skipped_portfolio": 0,
         }
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for fill in fills:
@@ -290,16 +291,21 @@ def _metrics(
     train = [item for item in accepted if item["day"] in train_days]
     val = [item for item in accepted if item["day"] in val_days]
 
-    def aggregate(items: list[dict[str, Any]]) -> tuple[float, float | None, int, float | None]:
+    def profit_factor(items: list[dict[str, Any]]) -> float | None:
+        gross_win = sum(item["pnl"] for item in items if item["pnl"] > 0)
+        gross_loss = abs(sum(item["pnl"] for item in items if item["pnl"] < 0))
+        return (gross_win / gross_loss) if gross_loss > 0 else None
+
+    def aggregate(items: list[dict[str, Any]]) -> tuple[float, float | None, int, float | None, float | None]:
         if not items:
-            return 0.0, None, 0, None
+            return 0.0, None, 0, None, None
         cost = sum(item["cost"] for item in items)
         pnl = sum(item["pnl"] for item in items)
         win_rate = sum(1 for item in items if item["pnl"] > 0) / len(items)
-        return pnl, (pnl / cost if cost else None), len(items), win_rate
+        return pnl, (pnl / cost if cost else None), len(items), win_rate, profit_factor(items)
 
-    train_pnl, train_roi, train_fills, train_win_rate = aggregate(train)
-    val_pnl, val_roi, val_fills, val_win_rate = aggregate(val)
+    train_pnl, train_roi, train_fills, train_win_rate, train_pf = aggregate(train)
+    val_pnl, val_roi, val_fills, val_win_rate, val_pf = aggregate(val)
     score = val_roi if val_fills >= min_val_fills and val_roi is not None else -999.0
     return {
         "pnl": total_pnl,
@@ -316,6 +322,9 @@ def _metrics(
         "val_roi": val_roi,
         "val_fills": val_fills,
         "val_win_rate": val_win_rate,
+        "profit_factor": profit_factor(accepted),
+        "train_profit_factor": train_pf,
+        "val_profit_factor": val_pf,
         "score": score,
         "skipped_portfolio": skipped_portfolio,
     }
@@ -585,8 +594,9 @@ def _store_results(conn: sqlite3.Connection, run_id: str, results: list[dict[str
         """INSERT INTO sweep_results(
              run_id, combo_id, params_json, family, train_pnl, train_roi, train_fills,
              train_win_rate, val_pnl, val_roi, val_fills, val_win_rate, pnl, roi, fills,
-             win_rate, cost, max_drawdown, score, rank)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             win_rate, cost, max_drawdown, score, rank,
+             train_profit_factor, val_profit_factor, profit_factor)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         [
             (
                 run_id,
@@ -609,6 +619,9 @@ def _store_results(conn: sqlite3.Connection, run_id: str, results: list[dict[str
                 item["max_drawdown"],
                 item["score"],
                 item["rank"],
+                item.get("train_profit_factor"),
+                item.get("val_profit_factor"),
+                item.get("profit_factor"),
             )
             for item in results
         ],

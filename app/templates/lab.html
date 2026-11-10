@@ -69,7 +69,8 @@
 
       <div class="form-actions">
         <button class="btn btn-primary" type="submit">{{ icon("play", 14) }} 开始扫描</button>
-        <span class="muted tiny">默认第 1 轮 240 组；自动取 Top K，围绕最优 offset/窗口/价格带生成第 2、3 轮细网格。自动流水线每 6 小时执行 ingest → 3 轮扫描 → 自动激活纸盘。</span>
+        <span class="muted tiny">默认第 1 轮 240 组；自动取 Top K，围绕最优 offset/窗口/价格带生成第 2、3 轮细网格。自动流水线每 6 小时执行 ingest → 3 轮扫描 → 自动激活纸盘。
+候选激活门槛：train ROI > 0、val ROI > 0、val PF ≥ 1.2、val fills ≥ 50；pipeline 会从全部结果里挑第一组通过门槛的，而不是只看 rank 1。</span>
       </div>
     </form>
   </div>

@@ -296,18 +296,30 @@ def run_job(job: dict[str, Any]) -> None:
                 progress=_progress_callback(job_id),
             )
             best = result.get("best") or {}
+            raw_best = result.get("raw_best") or {}
+            decision_reason = ((result.get("paper_decision") or {}).get("reason") or "")[:60]
+            if result.get("gate_rejected"):
+                message = (
+                    f"Pipeline 完成：fills={((result.get('ingest') or {}).get('fills') or 0):,}, "
+                    f"no candidate passed gates "
+                    f"(raw val ROI={(raw_best.get('val_roi') or 0) * 100:.2f}%); "
+                    f"paper={result.get('paper_strategy_id') or '—'} "
+                    f"({result.get('paper_action') or 'flat'}: {decision_reason}); "
+                    f"run=/lab/{raw_best.get('run_id') or '—'}"
+                )
+            else:
+                message = (
+                    f"Pipeline 完成：fills={((result.get('ingest') or {}).get('fills') or 0):,}, "
+                    f"best val ROI={(best.get('val_roi') or 0) * 100:.2f}%, "
+                    f"paper={result.get('paper_strategy_id') or '—'} "
+                    f"({result.get('paper_action') or '—'}: {decision_reason}); "
+                    f"run=/lab/{best.get('run_id') or '—'}"
+                )
             update_job(
                 job_id,
                 status="DONE",
                 progress=100,
-                message=(
-                    f"Pipeline 完成：fills={((result.get('ingest') or {}).get('fills') or 0):,}, "
-                    f"best val ROI={(best.get('val_roi') or 0) * 100:.2f}%, "
-                    f"paper={result.get('paper_strategy_id') or '—'} "
-                    f"({result.get('paper_action') or '—'}: "
-                    f"{((result.get('paper_decision') or {}).get('reason') or '')[:60]}); "
-                    f"run=/lab/{best.get('run_id') or '—'}"
-                ),
+                message=message,
                 finished_at=now_ts(),
             )
             return

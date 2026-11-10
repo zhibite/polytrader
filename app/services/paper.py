@@ -489,12 +489,51 @@ def source_val_roi(conn: sqlite3.Connection, strategy: dict[str, Any]) -> float 
     return None
 
 
+def candidate_gate_reasons(
+    candidate: dict[str, Any] | None,
+    min_train_roi: float = 0.0,
+    min_val_roi: float = 0.0,
+    min_profit_factor: float = 1.2,
+    min_val_fills: int = 50,
+) -> list[str]:
+    """Reasons a sweep candidate is not eligible for paper activation."""
+    if not candidate:
+        return ["no candidate"]
+    reasons: list[str] = []
+
+    def number(value: Any) -> float | None:
+        try:
+            if value is None:
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    train_roi = number(candidate.get("train_roi"))
+    val_roi = number(candidate.get("val_roi"))
+    val_pf = number(candidate.get("val_profit_factor"))
+    val_fills = number(candidate.get("val_fills")) or 0
+    if train_roi is None or train_roi <= min_train_roi:
+        reasons.append(f"train ROI {train_roi if train_roi is not None else '—'} <= {min_train_roi:.2%}")
+    if val_roi is None or val_roi <= min_val_roi:
+        reasons.append(f"val ROI {val_roi if val_roi is not None else '—'} <= {min_val_roi:.2%}")
+    if val_fills < min_val_fills:
+        reasons.append(f"val fills {int(val_fills)} < {min_val_fills}")
+    if val_pf is None or val_pf < min_profit_factor:
+        reasons.append(f"val PF {val_pf if val_pf is not None else '—'} < {min_profit_factor:.2f}")
+    return reasons
+
+
 def promotion_decision(
     conn: sqlite3.Connection,
-    candidate_val_roi: float | None,
+    candidate: dict[str, Any] | None,
     min_retention_hours: float = 24.0,
     min_settled_trades: int = 100,
     margin: float = 0.01,
+    min_train_roi: float = 0.0,
+    min_val_roi: float = 0.0,
+    min_profit_factor: float = 1.2,
+    min_val_fills: int = 50,
 ) -> dict[str, Any]:
     """Decide whether a new paper strategy may replace the active one.
 
@@ -503,11 +542,18 @@ def promotion_decision(
     active strategy's source validation ROI by ``margin``.
     """
     active = active_strategy(conn)
+    gate_reasons = candidate_gate_reasons(
+        candidate,
+        min_train_roi=min_train_roi,
+        min_val_roi=min_val_roi,
+        min_profit_factor=min_profit_factor,
+        min_val_fills=min_val_fills,
+    )
     if not active:
-        if candidate_val_roi is None or float(candidate_val_roi) <= 0:
+        if gate_reasons:
             return {
                 "replace": False,
-                "reason": "candidate val ROI <= 0; staying flat",
+                "reason": "candidate gate: " + "; ".join(gate_reasons),
                 "active_id": None,
             }
         return {"replace": True, "reason": "no active paper strategy", "active_id": None}
@@ -520,13 +566,14 @@ def promotion_decision(
             "active_id": active["id"],
             "active_val_roi": source_val_roi(conn, active) or 0.0,
         }
-    if candidate_val_roi is None or float(candidate_val_roi) <= 0:
+    if gate_reasons:
         return {
             "replace": False,
-            "reason": "candidate val ROI <= 0",
+            "reason": "candidate gate: " + "; ".join(gate_reasons),
             "active_id": active["id"],
             "active_val_roi": source_val_roi(conn, active) or 0.0,
         }
+    candidate_val_roi = candidate.get("val_roi") if candidate else None
     age_hours = max(0.0, (now_ts() - int(active["created_at"])) / 3600.0)
     settled = settled_count(conn, active["id"])
     active_roi = source_val_roi(conn, active) or 0.0
@@ -534,15 +581,6 @@ def promotion_decision(
         return {
             "replace": False,
             "reason": f"retention: {age_hours:.1f}h / {settled} settled",
-            "active_id": active["id"],
-            "age_hours": age_hours,
-            "settled": settled,
-            "active_val_roi": active_roi,
-        }
-    if candidate_val_roi is None:
-        return {
-            "replace": False,
-            "reason": "candidate has no validation ROI",
             "active_id": active["id"],
             "age_hours": age_hours,
             "settled": settled,

@@ -179,7 +179,8 @@ ingest 最近 7 天成交
 
 - 纸盘用 collector 的实时盘口/成交，在 trade print 穿过我们的 bid 时模拟成交，持有到结算；
 - 旧纸盘策略只有在运行 ≥24 小时或 ≥100 笔已结算后，且新策略 val ROI 领先 ≥1% 时才替换；否则保留当前 active 策略（新配置仍会保存）；
-- candidate val ROI ≤0 时不允许激活/替换；宁可空仓；
+- candidate 必须同时满足：train ROI >0、val ROI >0、val Profit Factor ≥1.2、val fills ≥50；pipeline 从全部结果里挑第一组通过门槛的候选；
+- 没有通过门槛的候选时不允许激活/替换；宁可空仓；
 - 纸盘**峰值权益**回撤 ≥10% 时自动置为 inactive（停止开新仓，已有持仓继续结算）；
 - 新激活的纸盘策略默认冻结 14 天（`LAB_PAPER_FREEZE_HOURS=336`）；冻结期内 pipeline 继续扫描/保存，但不会替换 active，保证评估样本连续；
 - 被替换的旧策略会置为 inactive，但未结算持仓仍会继续结算；

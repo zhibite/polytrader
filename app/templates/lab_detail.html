@@ -53,7 +53,7 @@
   <div class="card-body flush">
     <div class="table-wrap" style="max-height:720px">
       <table>
-        <thead><tr><th>#</th><th>Offset</th><th>窗口组</th><th>价格带</th><th class="num">Size</th><th class="num">返佣</th><th class="num">Train PnL</th><th class="num">Train ROI</th><th class="num">Val PnL</th><th class="num">Val ROI</th><th class="num">Val Fills</th><th class="num">Max DD</th><th>保存</th></tr></thead>
+        <thead><tr><th>#</th><th>Offset</th><th>窗口组</th><th>价格带</th><th class="num">Size</th><th class="num">返佣</th><th class="num">Train PnL</th><th class="num">Train ROI</th><th class="num">Val PnL</th><th class="num">Val ROI</th><th class="num">Val PF</th><th class="num">Val Fills</th><th class="num">Max DD</th><th>保存</th></tr></thead>
         <tbody>
         {% for item in results %}
           {% set p = item.params %}
@@ -68,6 +68,7 @@
             <td class="num">{{ item.train_roi|pct }}</td>
             <td class="num {{ 'positive' if (item.val_pnl or 0) > 0 else 'negative' }}">{{ item.val_pnl|money(2) }}</td>
             <td class="num {{ 'positive' if (item.val_roi or 0) > 0 else 'negative' }}">{{ item.val_roi|pct }}</td>
+            <td class="num">{{ item.val_profit_factor|num(2) }}</td>
             <td class="num soft">{{ item.val_fills|num }}</td>
             <td class="num negative">{{ item.max_drawdown|money(2) }}</td>
             <td>
