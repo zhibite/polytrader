@@ -527,6 +527,38 @@ def test_live_kill_switch_persists(db, tmp_path, monkeypatch):
         get_settings.cache_clear()
 
 
+def test_promote_paper_to_champion(db):
+    from app.services.champion import list_live_strategies, promote_paper_strategy
+    from app.services.paper import activate_paper_strategy
+
+    paper_id = activate_paper_strategy(
+        "champion-source",
+        {"offset": 0.005, "windows": ["0-30s"], "band": [0.5, 0.9], "size": 20,
+         "max_cost_per_market": 25, "max_open_cost": 500, "fee_bps": 0, "rebate_bps": 45},
+        starting_balance=500,
+        freeze_hours=0,
+    )
+    first = promote_paper_strategy(paper_id, name="first champion", starting_balance=50)
+    rows = list_live_strategies(db)
+    assert len(rows) == 1
+    assert rows[0]["id"] == first
+    assert rows[0]["active"] == 1
+    assert rows[0]["source_paper_id"] == paper_id
+
+    paper_id2 = activate_paper_strategy(
+        "challenger-source",
+        {"offset": 0.008, "windows": ["0-30s"], "band": [0.5, 0.9], "size": 10,
+         "max_cost_per_market": 25, "max_open_cost": 500, "fee_bps": 0, "rebate_bps": 45},
+        starting_balance=500,
+        freeze_hours=0,
+    )
+    second = promote_paper_strategy(paper_id2, name="second champion", starting_balance=50)
+    rows = list_live_strategies(db)
+    assert {row["id"] for row in rows} == {first, second}
+    assert next(row for row in rows if row["id"] == second)["active"] == 1
+    assert next(row for row in rows if row["id"] == first)["active"] == 0
+
+
 def test_replica_mid_maker(db):
     slug, condition, start = _seed_market(db)
     result = run_replica(

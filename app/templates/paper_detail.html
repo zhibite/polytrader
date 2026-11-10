@@ -26,6 +26,23 @@
   <a class="btn btn-sm" href="/paper">{{ icon("arrow-left", 14) }} 返回纸盘</a>
 </div>
 
+<div class="card" style="margin-bottom:14px">
+  <div class="card-body">
+    <div class="row-between">
+      <div>
+        <div class="card-title">Promote to live pilot（Champion）</div>
+        <div class="card-sub">冻结当前参数快照；纸盘 pipeline 不会自动修改实盘。实盘 runner 默认关闭，需同时开启 live + live_strategy 开关。</div>
+      </div>
+      <form method="post" action="/actions/live/promote" class="row" style="gap:6px;flex-wrap:nowrap">
+        <input type="hidden" name="paper_id" value="{{ strategy.id }}">
+        <input class="input" name="name" placeholder="Champion 名称" style="width:180px">
+        <input class="input" type="number" name="starting_balance" value="50" min="5" step="5" style="width:90px" title="实盘 pilot 起始资金">
+        <button class="btn btn-sm" type="submit">Promote</button>
+      </form>
+    </div>
+  </div>
+</div>
+
 <div class="kpi-grid" style="margin-bottom:14px">
   {{ kpi("起始资金", strategy.starting_balance|money(0), "paper only") }}
   {{ kpi("Cash", strategy.cash|money(2), "扣除开仓成本 / 加回结算") }}

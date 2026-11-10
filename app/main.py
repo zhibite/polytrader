@@ -19,6 +19,7 @@ from .services.demo import seed_demo
 from .services.jobs import JobWorker, create_job, reset_stale_jobs
 from .services.monitor import monitor_all_tracked
 from .services.paper import PaperWorker
+from .services.champion import live_strategy_loop
 from .services.live import LiveError, executor as live_executor
 
 logging.basicConfig(
@@ -33,6 +34,7 @@ paper_worker = PaperWorker()
 _monitor_task: asyncio.Task | None = None
 _pipeline_task: asyncio.Task | None = None
 _live_task: asyncio.Task | None = None
+_champion_task: asyncio.Task | None = None
 
 
 async def _live_loop() -> None:
@@ -127,13 +129,15 @@ async def lifespan(app: FastAPI):
     else:
         collector_manager._enabled = settings.collector_enabled
     collector_manager.start()
-    global _monitor_task, _pipeline_task, _live_task
+    global _monitor_task, _pipeline_task, _live_task, _champion_task
     if settings.monitor_interval_hours > 0:
         _monitor_task = asyncio.create_task(_monitor_loop(), name="monitor-loop")
     if settings.auto_pipeline_hours > 0:
         _pipeline_task = asyncio.create_task(_pipeline_loop(), name="pipeline-loop")
     if settings.live_enabled:
         _live_task = asyncio.create_task(_live_loop(), name="live-loop")
+    if settings.live_enabled and settings.live_strategy_enabled:
+        _champion_task = asyncio.create_task(live_strategy_loop(), name="champion-loop")
     log.info("%s %s ready", settings.app_name, settings.app_version)
     try:
         yield
@@ -154,6 +158,12 @@ async def lifespan(app: FastAPI):
             _live_task.cancel()
             try:
                 await _live_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        if _champion_task:
+            _champion_task.cancel()
+            try:
+                await _champion_task
             except (asyncio.CancelledError, Exception):
                 pass
         await collector_manager.stop()

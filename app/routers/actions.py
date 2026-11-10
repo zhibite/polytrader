@@ -273,6 +273,25 @@ def live_release(request: Request, confirm: Annotated[str, Form()] = ""):
         return _redirect(request, f"/execution?live_error={quote(str(exc))}")
 
 
+@router.post("/actions/live/promote")
+def live_promote(
+    request: Request,
+    paper_id: Annotated[str, Form()],
+    name: Annotated[str, Form()] = "",
+    starting_balance: Annotated[float, Form()] = 50.0,
+):
+    from urllib.parse import quote
+
+    from ..services.champion import promote_paper_strategy
+    from ..services.live import LiveError
+
+    try:
+        live_id = promote_paper_strategy(paper_id, name=name or None, starting_balance=starting_balance)
+        return _redirect(request, f"/execution?live_msg=promoted:{live_id}")
+    except LiveError as exc:
+        return _redirect(request, f"/execution?live_error={quote(str(exc))}")
+
+
 @router.post("/actions/monitor")
 def monitor_now(request: Request, address: Annotated[str | None, Form()] = None):
     targets = [address.lower()] if address else []

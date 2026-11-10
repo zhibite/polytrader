@@ -38,6 +38,49 @@
   {{ kpi("Last Reconcile", status.last_reconcile|ts("%m-%d %H:%M:%S") if status.last_reconcile else "—", "UTC") }}
 </div>
 
+<div class="card" style="margin-bottom:14px">
+  <div class="card-head">
+    <div><div class="card-title">Champion / Challenger</div><div class="card-sub">实盘只跑冻结快照；纸盘 pipeline 永远不会自动改实盘</div></div>
+    <span class="badge badge-{{ 'ok' if status.strategy_runner_enabled else 'neutral' }}">
+      Runner {{ 'ON' if status.strategy_runner_enabled else 'OFF' }}
+    </span>
+  </div>
+  <div class="card-body flush">
+    {% if live_strategies %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Champion</th><th>来源纸盘</th><th>状态</th><th>参数</th><th class="num">起始 / Cash</th><th class="num">已实现 PnL</th><th class="num">持仓</th><th>来源纸盘 PnL</th></tr></thead>
+        <tbody>
+        {% for item in live_strategies %}
+          <tr>
+            <td><strong>{{ item.name }}</strong><div class="mono muted tiny">{{ item.id }}</div></td>
+            <td>
+              {% if item.source_paper_id %}<a class="mono small" href="/paper/{{ item.source_paper_id }}">{{ item.source_paper_id }}</a>{% else %}—{% endif %}
+            </td>
+            <td>
+              {% if item.active %}<span class="badge badge-ok">active</span>{% else %}<span class="badge badge-neutral">{{ item.status }}</span>{% endif %}
+              {% if item.stop_reason %}<div class="muted tiny">{{ item.stop_reason }}</div>{% endif %}
+            </td>
+            <td class="small">offset {{ item.params.offset }} · {{ item.params.window_set }} · {{ item.params.band }} · size {{ item.params.size }}</td>
+            <td class="num">{{ item.starting_balance|money(0) }} / {{ item.cash|money(2) }}</td>
+            <td class="num {{ 'positive' if (item.realized_pnl or 0) > 0 else 'negative' }}">{{ item.realized_pnl|money(2) }}</td>
+            <td class="num">{{ item.open_positions|num }} open / {{ item.settled_positions|num }} settled</td>
+            <td class="num {{ 'positive' if (item.source_paper.realized_pnl or 0) > 0 else 'negative' if item.source_paper else '' }}">
+              {% if item.source_paper %}{{ item.source_paper.realized_pnl|money(2) }}{% else %}—{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <div class="table-empty">
+        还没有 Champion。去 <a href="/paper">前向纸盘</a> 打开一个策略，点「Promote to live pilot」创建冻结快照。
+      </div>
+    {% endif %}
+  </div>
+</div>
+
 <div class="grid grid-2" style="margin-bottom:14px">
   <div class="card">
     <div class="card-head"><div><div class="card-title">风控参数</div><div class="card-sub">仅对实盘执行层生效</div></div></div>

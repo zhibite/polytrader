@@ -471,16 +471,61 @@ CREATE TABLE IF NOT EXISTS paper_state (
 CREATE TABLE IF NOT EXISTS live_orders (
     id TEXT PRIMARY KEY,
     exchange_order_id TEXT,
+    strategy_id TEXT,
+    slug TEXT,
+    condition_id TEXT,
+    outcome TEXT,
     token_id TEXT NOT NULL,
     side TEXT NOT NULL,
     price REAL NOT NULL,
     size REAL NOT NULL,
+    filled_size REAL NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     raw_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_live_orders_status ON live_orders(status, created_at);
+
+CREATE TABLE IF NOT EXISTS live_strategies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source_paper_id TEXT,
+    source_run TEXT,
+    params_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PILOT',
+    active INTEGER NOT NULL DEFAULT 0,
+    starting_balance REAL NOT NULL,
+    cash REAL NOT NULL,
+    realized_pnl REAL NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_tick_at INTEGER,
+    stop_reason TEXT
+);
+
+CREATE TABLE IF NOT EXISTS live_positions (
+    id TEXT PRIMARY KEY,
+    strategy_id TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    condition_id TEXT,
+    token_id TEXT,
+    outcome TEXT NOT NULL,
+    shares REAL NOT NULL DEFAULT 0,
+    cost REAL NOT NULL DEFAULT 0,
+    avg_price REAL NOT NULL,
+    opened_at INTEGER NOT NULL,
+    market_end INTEGER,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    resolved TEXT,
+    payout REAL,
+    settlement_pnl REAL,
+    order_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(strategy_id, slug, outcome)
+);
+CREATE INDEX IF NOT EXISTS idx_live_positions_strategy ON live_positions(strategy_id, status);
 
 CREATE TABLE IF NOT EXISTS live_fills (
     id TEXT PRIMARY KEY,
@@ -617,6 +662,18 @@ def init_db() -> None:
         for column in ("train_profit_factor", "val_profit_factor", "profit_factor"):
             if column not in sweep_columns:
                 conn.execute(f"ALTER TABLE sweep_results ADD COLUMN {column} REAL")
+        live_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(live_orders)").fetchall()
+        }
+        for column, ddl in (
+            ("strategy_id", "TEXT"),
+            ("slug", "TEXT"),
+            ("condition_id", "TEXT"),
+            ("outcome", "TEXT"),
+            ("filled_size", "REAL NOT NULL DEFAULT 0"),
+        ):
+            if column not in live_columns:
+                conn.execute(f"ALTER TABLE live_orders ADD COLUMN {column} {ddl}")
         settings = get_settings()
         # Existing strategies: reconstruct the equity peak from the equity
         # curve, and give the currently active one a freeze window from its

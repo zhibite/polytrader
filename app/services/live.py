@@ -137,17 +137,17 @@ class LiveExecutor:
             credential_reasons.append("py-clob-client-v2 not installed")
         if not s.live_private_key:
             credential_reasons.append("private key missing")
-        if not (s.live_api_key and s.live_api_secret and s.live_api_passphrase):
-            credential_reasons.append("L2 API credentials missing")
         if s.live_signature_type in (1, 2, 3) and not s.live_funder_address:
             credential_reasons.append("funder address missing for proxy/safe signature type")
         return {
             "mode": s.trading_mode,
             "enabled": s.live_enabled,
+            "strategy_runner_enabled": s.live_strategy_enabled and s.live_enabled,
             "confirm_ok": (s.live_confirm or "") == s.live_confirm_phrase,
             "sdk_available": sdk,
             "private_key_set": bool(s.live_private_key),
             "api_creds_set": bool(s.live_api_key and s.live_api_secret and s.live_api_passphrase),
+            "api_creds_can_derive": bool(s.live_private_key and sdk),
             "funder_set": bool(s.live_funder_address),
             "signature_type": s.live_signature_type,
             "credentials_ready": not credential_reasons,
@@ -185,11 +185,26 @@ class LiveExecutor:
             from py_clob_client_v2 import ClobClient
             from py_clob_client_v2.clob_types import ApiCreds
 
-            creds = ApiCreds(
-                api_key=self.settings.live_api_key,
-                api_secret=self.settings.live_api_secret,
-                api_passphrase=self.settings.live_api_passphrase,
-            )
+            if self.settings.live_api_key and self.settings.live_api_secret and self.settings.live_api_passphrase:
+                creds = ApiCreds(
+                    api_key=self.settings.live_api_key,
+                    api_secret=self.settings.live_api_secret,
+                    api_passphrase=self.settings.live_api_passphrase,
+                )
+            else:
+                from .live_auth import create_or_derive_clob_api_creds
+
+                derived = await asyncio.to_thread(
+                    create_or_derive_clob_api_creds,
+                    self.settings.live_clob_host,
+                    self.settings.live_private_key,
+                    self.settings.live_chain_id,
+                )
+                creds = ApiCreds(
+                    api_key=derived.api_key,
+                    api_secret=derived.api_secret,
+                    api_passphrase=derived.api_passphrase,
+                )
 
             def _build():
                 return ClobClient(
@@ -228,7 +243,10 @@ class LiveExecutor:
                 "SELECT COALESCE(SUM(price * size),0) AS n FROM live_orders "
                 "WHERE status IN ('PLACED','LIVE','MISSING')"
             ).fetchone()
-            open_notional = float(row["n"] or 0)
+            position_row = conn.execute(
+                "SELECT COALESCE(SUM(cost),0) AS n FROM live_positions WHERE status='OPEN'"
+            ).fetchone()
+            open_notional = float(row["n"] or 0) + float(position_row["n"] or 0)
         finally:
             conn.close()
         if open_notional + notional > self.settings.live_max_open_notional_usdc:
@@ -333,6 +351,47 @@ class LiveExecutor:
             raise
         except Exception as exc:
             message = _redact(f"place_limit failed: {exc}")
+            _record_event("ERROR", message)
+            raise LiveError(message) from exc
+
+    async def refresh_order(self, order_id: str) -> dict[str, Any]:
+        """Poll one order; return filled_size/status and update the local row."""
+        client = await self._get_client(require_trading=False)
+        conn = connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM live_orders WHERE id=? OR exchange_order_id=? LIMIT 1",
+                (order_id, order_id),
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            raise LiveError("order not found")
+        exchange_id = row["exchange_order_id"] or order_id
+        try:
+            response = await asyncio.to_thread(client.get_order, exchange_id)
+            response = response or {}
+            filled = float(response.get("size_matched") or response.get("sizeMatched") or 0)
+            status = str(response.get("status") or row["status"] or "LIVE").upper()
+            conn = connect()
+            try:
+                conn.execute(
+                    "UPDATE live_orders SET filled_size=?, status=?, updated_at=?, raw_json=? WHERE id=?",
+                    (filled, status, now_ts(), to_json(response), row["id"]),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            return {
+                "ok": True,
+                "order_id": row["id"],
+                "exchange_order_id": exchange_id,
+                "filled_size": filled,
+                "status": status,
+                "raw": response,
+            }
+        except Exception as exc:
+            message = _redact(f"refresh_order failed: {exc}")
             _record_event("ERROR", message)
             raise LiveError(message) from exc
 

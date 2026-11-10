@@ -14,6 +14,7 @@ from ..services import collector as collector_service
 from ..services import sweep as sweep_service
 from ..services import paper as paper_service
 from ..services.live import executor as live_executor
+from ..services.champion import list_live_strategies
 from ..services.jobs import get_job, list_jobs
 from ..services.monitor import drift, snapshot_rows
 from ..services.profiles import cluster_wallets
@@ -406,10 +407,16 @@ def paper_detail(request: Request, strategy_id: str):
 @router.get("/execution", response_class=HTMLResponse)
 def execution_page(request: Request):
     status = live_executor.status()
+    conn = connect()
+    try:
+        live_strategies = list_live_strategies(conn)
+    finally:
+        conn.close()
     return _render(
         request,
         "execution.html",
         status=status,
+        live_strategies=live_strategies,
         live_msg=request.query_params.get("live_msg"),
         live_error=request.query_params.get("live_error"),
     )

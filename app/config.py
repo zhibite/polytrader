@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     live_max_orders_per_minute: int = 10
     live_min_order_size: float = 5.0
 
+    # Champion/Challenger pilot runner. This is a SECOND explicit switch:
+    # even with live_enabled, the automatic live runner stays off unless set.
+    live_strategy_enabled: bool = False
+    live_strategy_tick_seconds: float = 5.0
+    live_daily_loss_limit_usdc: float = 10.0
+    live_pilot_starting_balance: float = 50.0
+
     demo_seed: bool = False
 
     api_base: str = "https://data-api.polymarket.com/v2"
