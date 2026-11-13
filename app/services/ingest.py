@@ -355,7 +355,7 @@ def update_resolutions(conn: sqlite3.Connection, address: str) -> int:
         """SELECT t.condition_id AS condition_id, MAX(t.slug) AS slug, MAX(t.title) AS title,
                   MAX(m.resolved) AS market_resolved
            FROM trades t
-           LEFT JOIN markets m ON lower(m.condition_id)=lower(t.condition_id)
+           LEFT JOIN markets m ON m.condition_id=t.condition_id
            WHERE t.address=? AND t.condition_id IS NOT NULL AND t.condition_id != ''
            GROUP BY t.condition_id""",
         (address,),
@@ -393,7 +393,7 @@ def update_resolutions(conn: sqlite3.Connection, address: str) -> int:
     updated = fetch_resolutions(conn, conditions)
     conn.execute(
         """UPDATE trades SET resolved = (
-               SELECT resolved FROM markets m WHERE lower(m.condition_id)=lower(trades.condition_id)
+               SELECT resolved FROM markets m WHERE m.condition_id=trades.condition_id
            )
            WHERE address=? AND resolved IS NULL""",
         (address,),

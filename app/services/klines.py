@@ -277,7 +277,7 @@ def fetch_resolutions(conn: sqlite3.Connection, conditions: list[str]) -> int:
             continue
         conn.execute(
             """UPDATE markets SET resolved=?, updated_at=?
-               WHERE lower(condition_id)=?""",
+               WHERE condition_id=?""",
             (resolved, now_ts(), condition),
         )
         updated += 1
