@@ -56,7 +56,7 @@ def run_pipeline(
             max_trades=params.get("max_trades") or settings.ingest_max_trades,
             enrich=True,
             enrich_max_trades=params.get("enrich_max_trades") or settings.enrich_max_trades,
-            enrich_days=settings.enrich_days,
+            enrich_days=max(settings.enrich_days, days),
             progress=(lambda done, total, msg: progress(int(done * 0.45), 100, f"ingest: {msg}")) if progress else None,
         )
     finally:

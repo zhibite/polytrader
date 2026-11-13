@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # Automated research pipeline: ingest -> 3 sweep rounds -> paper strategy.
     auto_pipeline_hours: float = 6.0
-    auto_pipeline_days: int = 7
+    auto_pipeline_days: int = 30
     auto_pipeline_rounds: int = 3
     auto_pipeline_top_k: int = 8
     auto_pipeline_max_cost_per_market: float = 25.0
