@@ -541,6 +541,7 @@ def run_auto_sweep(
     base = {key: value for key, value in params.items() if key not in ("auto_rounds", "top_k")}
     current = dict(base)
     history: list[dict[str, Any]] = []
+    all_results: list[dict[str, Any]] = []
     overall_best: dict[str, Any] | None = None
     for round_number in range(1, rounds + 1):
         run_id = f"{job_id}-r{round_number}"
@@ -553,6 +554,11 @@ def run_auto_sweep(
         result = run_sweep(run_id=run_id, params=current, progress=round_progress)
         summary = result.get("summary") or {}
         best = summary.get("best") or {}
+        round_results = result.get("results") or []
+        all_results.extend(
+            {**item, "run_id": run_id, "round": round_number}
+            for item in round_results
+        )
         history.append(
             {
                 "round": round_number,
@@ -576,6 +582,10 @@ def run_auto_sweep(
         if next_params == current:
             break
         current = next_params
+    all_results.sort(
+        key=lambda item: (item.get("score") or -999, item.get("val_pnl") or 0, item.get("pnl") or 0),
+        reverse=True,
+    )
     summary = {
         "rounds": len(history),
         "history": history,
@@ -585,7 +595,7 @@ def run_auto_sweep(
     }
     if progress:
         progress(100, 100, "auto sweep complete")
-    return {"summary": summary}
+    return {"summary": summary, "results": all_results}
 
 
 def _store_results(conn: sqlite3.Connection, run_id: str, results: list[dict[str, Any]]) -> None:
